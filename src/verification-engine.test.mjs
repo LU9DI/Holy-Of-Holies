@@ -71,6 +71,39 @@ test("verifies persisted Ed25519 attestations after verifier restart and rejects
   assert.equal(await restarted.verifyCompletion({ task, evidence: { ...evidence, resultHash: forged.resultHash, attestation: forged } }), false);
 });
 
+test("rechecks local revocation after asynchronous workspace verification", async () => {
+  const digest = "e".repeat(64);
+  const verificationId = "verify-revocation-race";
+  const signed = attestor().attest(report({
+    verificationId,
+    workspaceHash: digest,
+    workspaceHashAfter: digest,
+  }));
+  let releaseDigest;
+  const digestGate = new Promise((resolve) => { releaseDigest = resolve; });
+  const verifier = engine({
+    getWorkspaceDigest: async () => {
+      await digestGate;
+      return digest;
+    },
+  });
+  const pending = verifier.verifyCompletion({
+    task,
+    evidence: {
+      ...evidence,
+      verificationId,
+      workspaceHash: digest,
+      workspaceHashAfter: digest,
+      attestation: signed,
+    },
+  });
+
+  await Promise.resolve();
+  verifier.revoke(verificationId);
+  releaseDigest();
+  assert.equal(await pending, false);
+});
+
 test("binds workspace digest to signed evidence and optional task revision", async () => {
   const digest = "c".repeat(64);
   const signed = attestor().attest(report({ verificationId: "verify-workspace", workspaceHash: digest, workspaceHashAfter: digest }));
