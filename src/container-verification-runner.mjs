@@ -133,7 +133,7 @@ export class ContainerVerificationRunner {
     const startedAt = new Date(this.#clock()).toISOString();
     const name = `hoh-verify-${randomUUID()}`;
     const args = [
-      "run", "--name", name, "--rm", "--pull=never",
+      "run", "--name", name, "--pull=never",
       "--network=none", "--read-only", "--cap-drop=ALL",
       "--security-opt=no-new-privileges", `--pids-limit=${this.#pids}`,
       `--memory=${this.#memory}`, `--cpus=${this.#cpus}`,
@@ -162,7 +162,6 @@ export class ContainerVerificationRunner {
       let settled = false;
 
       const cleanupContainer = async () => {
-        if (!timedOut && !cancelled && !overflow) return true;
         return await new Promise((done) => {
           let cleanup;
           let completed = false;

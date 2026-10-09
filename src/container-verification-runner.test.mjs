@@ -32,6 +32,7 @@ test("uses pinned images, read-only source, no network, and resource limits", as
   });
   const result = await runner.run({ taskId: "task-1", projectId: "project-1", commandId: "unit-tests", principalId: "ci" });
   assert.equal(result.outcome, "passed", JSON.stringify({ exitCode: result.exitCode, spawnError: result.spawnError, cleanupSucceeded: result.cleanupSucceeded, stderr: result.stderr }));
+  assert.equal(result.cleanupSucceeded, true);
   const argv = result.stdout.trim().split("\n");
   assert.ok(argv.includes("--network=none"));
   assert.ok(argv.includes("--read-only"));
