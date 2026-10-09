@@ -31,3 +31,5 @@ export { VerificationRunner, VerificationRunnerError } from "./verification-runn
 export { VerificationCoordinator, VerificationCoordinatorError } from "./verification-coordinator.mjs";
 
 export { RevocationRegistry } from "./revocation-registry.mjs";
+
+export { ContainerVerificationRunner, ContainerVerificationRunnerError } from "./container-verification-runner.mjs";

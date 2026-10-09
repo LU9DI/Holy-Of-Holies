@@ -21,7 +21,7 @@ This repository owns orchestration and policy contracts. It does not own the Zio
 - **Provider registry**: explicit provider selection, declared capabilities, status probing and policy authorization before invocation.
 - **Workspace manager**: canonical-root path checks, symlink rejection, bounded reads, atomic writes, file hashes and expected-version checks.
 - **Tool registry**: strict JSON contracts, input/output byte limits, cancellation, timeout requests, deny-by-default policy checks, and independently verified short-lived approval for side effects. Timeouts cannot terminate hostile in-process code; production still needs OS isolation.
-- **Evidence / audit hardening (next)**: secret redaction, signed provenance and external anchoring.
+- **Container verification runner**: digest-pinned OCI image, no network, read-only source mount, dropped capabilities, non-root user, read-only container root and bounded CPU/memory/PIDs/output/time.
 - **Provider adapters (next)**: REA, model providers and later Zion integration.
 
 ## Lifecycle invariants
@@ -63,7 +63,7 @@ The current modules provide orchestration primitives and local file operations, 
 
 ## Verification execution boundary
 
-`VerificationRunner` invokes only preconfigured command descriptors using `spawn` with `shell: false`, explicit arguments, policy authorization, bounded runtime and bounded captured output. It records exit status and SHA-256 hashes for captured stdout/stderr and the report. It is not an OS sandbox: descendant processes may survive, and host filesystem/network/resource access is not contained. Production execution of untrusted code requires an external isolated worker and a trusted attestation service that is separate from the planner and runner process.
+`VerificationRunner` invokes only preconfigured command descriptors using `spawn` with `shell: false`, explicit arguments, policy authorization, bounded runtime and bounded captured output. It records exit status and SHA-256 hashes for captured stdout/stderr and the report. It is not an OS sandbox: descendant processes may survive, and host filesystem/network/resource access is not contained. The container runner is a meaningful defense-in-depth boundary but is not a VM or formal sandbox; runtime/host-kernel vulnerabilities remain in scope. Prefer rootless Podman or a disposable dedicated worker. A trusted attestation service must remain separate from the planner and runner process.
 
 
 ## Verification coordination and audit trail

@@ -52,7 +52,7 @@ Cancellation and timeout signals are cooperative. They do **not** terminate host
 
 `VerificationRunner` executes only explicitly configured commands, with a fixed executable and argument list, no shell, policy authorization, timeouts, output limits, and hashed reports. A passing exit code is necessary but not sufficient: a trusted verification service must independently issue the signed attestation consumed by `VerificationEngine`.
 
-This runner is a constrained process launcher, **not a security sandbox**. It does not provide CPU/memory quotas, network isolation, filesystem isolation, syscall filtering, or a reliable way to kill descendants. Do not run untrusted project code directly on the host. Use a disposable, separately hardened worker/container with restricted credentials, filesystem, network and resource limits; persist signed evidence outside the worker.
+This runner is a constrained process launcher, **not a security sandbox**. It does not provide CPU/memory quotas, network isolation, filesystem isolation, syscall filtering, or a reliable way to kill descendants. Do not run untrusted project code directly on the host. Use `ContainerVerificationRunner` for a digest-pinned OCI container with no network, read-only source mount and explicit CPU, memory and process limits; prefer rootless Podman or an equivalent dedicated worker, and persist signed evidence outside the worker. Container isolation still depends on the host kernel and runtime and is not a VM or a formal sandbox.
 
 ## Verification Coordination and Durable Evidence
 
