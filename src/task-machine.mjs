@@ -42,10 +42,20 @@ function assertPositiveInteger(value, field, { allowZero = false } = {}) {
   }
 }
 
+function assertExactKeys(value, expectedKeys, field) {
+  const keys = Object.keys(value).sort();
+  const expected = [...expectedKeys].sort();
+  if (keys.length !== expected.length ||
+      keys.some((key, index) => key !== expected[index])) {
+    throw new TypeError(`${field} contains missing or unknown fields`);
+  }
+}
+
 function assertPermissions(permissions) {
-  if (!permissions || typeof permissions !== "object") {
+  if (!permissions || typeof permissions !== "object" || Array.isArray(permissions)) {
     throw new TypeError("permissions are required");
   }
+  assertExactKeys(permissions, Object.keys(PERMISSION_LEVELS), "permissions");
   for (const [key, allowed] of Object.entries(PERMISSION_LEVELS)) {
     if (!allowed.has(permissions[key])) {
       throw new TypeError(`permissions.${key} is missing or invalid`);
@@ -77,16 +87,21 @@ export function createTask(input, { now } = {}) {
   assertPermissions(input.permissions);
 
   const limits = input.resourceLimits;
-  if (!limits || typeof limits !== "object") {
+  if (!limits || typeof limits !== "object" || Array.isArray(limits)) {
     throw new TypeError("resourceLimits are required");
   }
+  assertExactKeys(limits, ["timeoutMs", "maxOutputBytes", "maxConcurrentChildren"], "resourceLimits");
   assertPositiveInteger(limits.timeoutMs, "resourceLimits.timeoutMs");
   assertPositiveInteger(limits.maxOutputBytes, "resourceLimits.maxOutputBytes");
   assertPositiveInteger(limits.maxConcurrentChildren, "resourceLimits.maxConcurrentChildren", { allowZero: true });
 
+  const taskId = input.taskId.trim();
+  const projectId = input.projectId.trim();
+  const policyVersion = input.policyVersion.trim();
+  const parentTaskId = input.parentTaskId === undefined ? undefined : input.parentTaskId.trim();
   if (input.parentTaskId !== undefined) {
     assertNonEmptyString(input.parentTaskId, "parentTaskId");
-    if (input.parentTaskId === input.taskId) {
+    if (parentTaskId === taskId) {
       throw new TypeError("task cannot be its own parent");
     }
   }
@@ -94,15 +109,15 @@ export function createTask(input, { now } = {}) {
   const at = timestamp(now);
   const task = {
     schemaVersion: 1,
-    taskId: input.taskId,
-    projectId: input.projectId,
-    ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
+    taskId,
+    projectId,
+    ...(parentTaskId ? { parentTaskId } : {}),
     objective: input.objective.trim(),
     status: "queued",
     requiresApproval: input.requiresApproval === true,
     permissions: { ...input.permissions },
     resourceLimits: { ...limits },
-    policyVersion: input.policyVersion,
+    policyVersion,
     createdAt: at,
     updatedAt: at,
     events: [{
