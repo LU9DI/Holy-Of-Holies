@@ -31,7 +31,7 @@ This repository owns orchestration and policy contracts. It does not own the Zio
 - Approval records must identify the approving principal.
 - An interrupted task may be requeued only after a resume check.
 - A transition helper is not a trusted persistence layer. The orchestrator must serialize transitions and persist them atomically to prevent concurrent writers from racing.
-- Completion requires verification evidence. The current state machine only represents lifecycle; it does not yet enforce evidence requirements.
+- Completion requires a structured evidence record and a configured verification callback; without one, the orchestrator refuses completion. The callback must independently validate the referenced result rather than trust model-generated claims.
 
 ## Design constraints
 
@@ -55,4 +55,4 @@ This repository owns orchestration and policy contracts. It does not own the Zio
 
 ## Current limitations
 
-The current modules provide orchestration primitives and local file operations, but they are not a complete autonomous agent, distributed runtime, hardened sandbox, transactional database, cryptographic identity system, or production authorization boundary. Workspace path checks do not eliminate all races against a hostile process running as the same OS user. Those properties must be implemented and independently tested before the platform claims them.
+The current modules provide orchestration primitives and local file operations, but they are not a complete autonomous agent, distributed runtime, hardened sandbox, transactional database, cryptographic identity system, built-in independent verifier, or production authorization boundary. Workspace path checks do not eliminate all races against a hostile process running as the same OS user. Those properties must be implemented and independently tested before the platform claims them.
