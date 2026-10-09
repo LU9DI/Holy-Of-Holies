@@ -145,7 +145,15 @@ test("durable registry restart blocks redispatch of a completed provider-scoped 
   registerCharge(restarted.tools);
   await assert.rejects(
     restarted.tools.invoke(request("op-payment-durable-1")),
-    (error) => error.code === "OPERATION_JOURNAL_BEGIN_FAILED",
+    (error) => error.code === "OPERATION_ALREADY_CLAIMED",
+  );
+
+  await assert.rejects(
+    restarted.tools.invoke({
+      ...request("op-payment-durable-1"),
+      input: { amount: 26 },
+    }),
+    (error) => error.code === "OPERATION_ID_CONFLICT" && error.outcomeUnknown === true,
   );
 
   assert.equal(dispatches, 1, "a durable completed operation must not be dispatched again");
