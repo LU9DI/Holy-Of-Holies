@@ -9,7 +9,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/task-machine.mjs && node --check src/policy-engine.mjs && node --test"
+    "check": "node --check src/task-machine.mjs && node --check src/policy-engine.mjs && npm run license:check && node --test",
+    "license:check": "node scripts/check-license.mjs"
   },
   "main": "./src/index.mjs",
   "exports": "./src/index.mjs",
