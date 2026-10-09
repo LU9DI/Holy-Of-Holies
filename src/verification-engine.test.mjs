@@ -40,8 +40,10 @@ test("rejects unknown, forged, mismatched, revoked, and expired attestations", a
   verifier.revoke(evidence.verificationId);
   assert.equal(await verifier.verifyCompletion({ task, evidence }), false);
 
-  const expired = engine(() => new Date("2026-10-09T12:20:00Z"));
-  expired.attest(report({ verificationId: "verify-expired", issuedAt: "2026-10-09T12:00:00Z", expiresAt: "2026-10-09T12:04:00Z" }));
+  let expiredNow = new Date("2026-10-09T12:00:00Z");
+  const expired = new VerificationEngine({ key, trustedVerifiers: ["ci:trusted"], clock: () => expiredNow });
+  expired.attest(report({ verificationId: "verify-expired", issuedAt: "2026-10-09T11:59:00Z", expiresAt: "2026-10-09T12:04:00Z" }));
+  expiredNow = new Date("2026-10-09T12:20:00Z");
   assert.equal(await expired.verifyCompletion({ task, evidence: { ...evidence, verificationId: "verify-expired" } }), false);
 });
 
