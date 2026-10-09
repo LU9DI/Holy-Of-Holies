@@ -63,6 +63,32 @@ function assertPermissions(permissions) {
   }
 }
 
+function validateCompletionEvidence(evidence) {
+  if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) {
+    throw new TypeError("completion requires verification evidence");
+  }
+  const expected = ["verificationId", "verifierId", "outcome", "resultHash"].sort();
+  const keys = Object.keys(evidence).sort();
+  if (keys.length !== expected.length ||
+      keys.some((key, index) => key !== expected[index])) {
+    throw new TypeError("completion evidence contains missing or unknown fields");
+  }
+  assertNonEmptyString(evidence.verificationId, "evidence.verificationId");
+  assertNonEmptyString(evidence.verifierId, "evidence.verifierId");
+  if (evidence.outcome !== "passed") {
+    throw new TypeError("completion evidence outcome must be passed");
+  }
+  if (typeof evidence.resultHash !== "string" || !/^[a-f0-9]{64}$/.test(evidence.resultHash)) {
+    throw new TypeError("evidence.resultHash must be a lowercase SHA-256 hex digest");
+  }
+  return Object.freeze({
+    verificationId: evidence.verificationId.trim(),
+    verifierId: evidence.verifierId.trim(),
+    outcome: "passed",
+    resultHash: evidence.resultHash,
+  });
+}
+
 function timestamp(value) {
   const date = value === undefined ? new Date() : new Date(value);
   if (!Number.isFinite(date.getTime())) {
@@ -165,6 +191,13 @@ export function transitionTask(task, nextStatus, options = {}) {
     throw new Error("interrupted task requires resume verification before requeue");
   }
 
+  let evidence;
+  if (nextStatus === "completed") {
+    evidence = validateCompletionEvidence(options.evidence);
+  } else if (options.evidence !== undefined) {
+    throw new TypeError("verification evidence is only valid when completing a task");
+  }
+
   const at = timestamp(options.now);
   const event = {
     type: "task.transitioned",
@@ -178,6 +211,7 @@ export function transitionTask(task, nextStatus, options = {}) {
     ...(task.status === "interrupted" && nextStatus === "queued"
       ? { resumeVerified: true }
       : {}),
+    ...(evidence ? { evidence } : {}),
   };
 
   return Object.freeze({
