@@ -12,5 +12,6 @@
     "check": "node --check src/task-machine.mjs && node --check src/policy-engine.mjs && node --test"
   },
   "main": "./src/index.mjs",
-  "exports": "./src/index.mjs"
+  "exports": "./src/index.mjs",
+  "license": "AGPL-3.0-or-later"
 }
