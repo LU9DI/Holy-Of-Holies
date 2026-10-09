@@ -79,6 +79,31 @@ test("compare-and-append rejects stale writers", async (t) => {
   assert.equal((await ledger.verify()).eventCount, 1);
 });
 
+test("releases its owned lock after an append is rejected", async (t) => {
+  const { path } = await fixture(t);
+  const ledger = new EventLedger(path);
+  const emptyHead = (await ledger.verify()).headHash;
+
+  await ledger.append({
+    type: "task.created",
+    payload: { taskId: "t-1" },
+    expectedHeadHash: emptyHead,
+  });
+  await assert.rejects(ledger.append({
+    type: "task.created",
+    payload: { taskId: "t-2" },
+    expectedHeadHash: emptyHead,
+  }), /head changed/);
+
+  await assert.rejects(readFile(`${path}.lock`, "utf8"), { code: "ENOENT" });
+  const appended = await ledger.append({
+    type: "task.started",
+    payload: { taskId: "t-1" },
+  });
+  assert.equal(appended.sequence, 2);
+  assert.equal((await ledger.verify()).eventCount, 2);
+});
+
 test("rejects invalid event input", async (t) => {
   const { path } = await fixture(t);
   const ledger = new EventLedger(path);
