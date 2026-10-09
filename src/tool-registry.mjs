@@ -128,10 +128,12 @@ function freezeDeep(value) {
 export class ToolRegistry {
   #tools = new Map();
   #authorize;
+  #verifyApproval;
   #clock;
 
-  constructor({ authorize, clock = () => new Date(), defaults = {} } = {}) {
+  constructor({ authorize, verifyApproval, clock = () => new Date(), defaults = {} } = {}) {
     this.#authorize = authorize;
+    this.#verifyApproval = verifyApproval;
     this.#clock = clock;
     this.defaults = Object.freeze({
       maxInputBytes: defaults.maxInputBytes ?? 256 * 1024,
@@ -189,7 +191,27 @@ export class ToolRegistry {
     const { descriptor } = entry;
     if (signal?.aborted) throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled before dispatch");
 
-    if (!descriptor.readOnly) this.#validateApproval(approval, principalId);
+    if (!descriptor.readOnly) {
+      this.#validateApprovalShape(approval, principalId);
+      if (typeof this.#verifyApproval !== "function") {
+        throw new ToolRegistryError("APPROVAL_VERIFIER_UNAVAILABLE", "side-effecting tool denied because no trusted approval verifier is configured");
+      }
+      let approved = false;
+      try {
+        approved = await this.#verifyApproval({
+          approval,
+          principalId,
+          toolId,
+          action: "tool.invoke.side_effect",
+          resource: `tool:${toolId}`,
+        }) === true;
+      } catch {
+        approved = false;
+      }
+      if (!approved) {
+        throw new ToolRegistryError("APPROVAL_NOT_VERIFIED", "side-effecting tool denied because approval could not be independently verified");
+      }
+    }
     if (typeof this.#authorize !== "function") {
       throw new ToolRegistryError("POLICY_ENGINE_UNAVAILABLE", "tool invocation denied because no policy evaluator is configured");
     }
@@ -261,7 +283,7 @@ export class ToolRegistry {
     }
   }
 
-  #validateApproval(approval, principalId) {
+  #validateApprovalShape(approval, principalId) {
     if (!approval || approval.approved !== true || !nonEmpty(approval.approvalId) ||
         !nonEmpty(approval.approvedBy) || approval.approvedBy === principalId ||
         !nonEmpty(approval.expiresAt)) {
