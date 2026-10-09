@@ -1,13 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
+import { generateKeyPairSync } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventLedger } from "./event-ledger.mjs";
 import { RevocationRegistry } from "./revocation-registry.mjs";
 import { VerificationEngine } from "./verification-engine.mjs";
+import { VerificationAttestor } from "./verification-attestor.mjs";
 
-const key = "test-only-secret-key-at-least-32-bytes-long";
+const pair = generateKeyPairSync("ed25519");
+const publicKey = pair.publicKey.export({ type: "spki", format: "pem" });
+const privateKey = pair.privateKey.export({ type: "pkcs8", format: "pem" });
 const task = { taskId: "task-42", projectId: "project-7" };
 const evidence = { verificationId: "verify-42", verifierId: "ci:trusted", outcome: "passed", resultHash: "a".repeat(64) };
 const clock = () => new Date("2026-10-09T12:00:00Z");
@@ -24,17 +28,17 @@ async function temporaryLedger(t, directory) {
 test("revocation is durable across registry and verifier restarts", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "holy-revocation-"));
   const { ledger, path } = await temporaryLedger(t, directory);
-  const issuer = new VerificationEngine({ key, trustedVerifiers: ["ci:trusted"], clock });
+  const issuer = new VerificationAttestor({ privateKey, trustedVerifiers: ["ci:trusted"], clock });
   const signed = issuer.attest(report());
   const registry = new RevocationRegistry({ ledger, clock });
-  const verifier = new VerificationEngine({ key, trustedVerifiers: ["ci:trusted"], clock, revocationRegistry: registry });
+  const verifier = new VerificationEngine({ publicKey, trustedVerifiers: ["ci:trusted"], clock, revocationRegistry: registry });
   const persistedEvidence = { ...evidence, attestation: signed };
   assert.equal(await verifier.verifyCompletion({ task, evidence: persistedEvidence }), true);
   assert.equal(await verifier.revokePersistently(evidence.verificationId, { reason: "runner compromised", actorId: "security:ops" }), true);
   assert.equal(await verifier.verifyCompletion({ task, evidence: persistedEvidence }), false);
 
   const restartedRegistry = new RevocationRegistry({ ledger: new EventLedger(path), clock });
-  const restartedVerifier = new VerificationEngine({ key, trustedVerifiers: ["ci:trusted"], clock, revocationRegistry: restartedRegistry });
+  const restartedVerifier = new VerificationEngine({ publicKey, trustedVerifiers: ["ci:trusted"], clock, revocationRegistry: restartedRegistry });
   assert.equal(await restartedVerifier.verifyCompletion({ task, evidence: persistedEvidence }), false);
   assert.equal(await restartedRegistry.isRevoked(evidence.verificationId), true);
 });
@@ -52,8 +56,8 @@ test("revocation is idempotent and validates audit metadata", async (t) => {
 
 test("verification fails closed if durable revocation storage is unavailable", async () => {
   const brokenRegistry = { async isRevoked() { throw new Error("store offline"); }, async revoke() {} };
-  const issuer = new VerificationEngine({ key, trustedVerifiers: ["ci:trusted"], clock });
+  const issuer = new VerificationAttestor({ privateKey, trustedVerifiers: ["ci:trusted"], clock });
   const signed = issuer.attest(report());
-  const verifier = new VerificationEngine({ key, trustedVerifiers: ["ci:trusted"], clock, revocationRegistry: brokenRegistry });
+  const verifier = new VerificationEngine({ publicKey, trustedVerifiers: ["ci:trusted"], clock, revocationRegistry: brokenRegistry });
   assert.equal(await verifier.verifyCompletion({ task, evidence: { ...evidence, attestation: signed } }), false);
 });
