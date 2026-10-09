@@ -37,16 +37,28 @@ function digest(key, value) {
   return createHmac("sha256", key).update(value, "utf8").digest("hex");
 }
 
+function isValidSignedRecord(record) {
+  return Boolean(record && record.schemaVersion === 1 &&
+    [record.verificationId, record.taskId, record.projectId, record.verifierId].every((id) => typeof id === "string" && ID.test(id)) &&
+    record.outcome === "passed" && HASH.test(record.resultHash ?? "") &&
+    typeof record.issuedAt === "string" && Number.isFinite(Date.parse(record.issuedAt)) &&
+    typeof record.expiresAt === "string" && Number.isFinite(Date.parse(record.expiresAt)) &&
+    Date.parse(record.expiresAt) > Date.parse(record.issuedAt) &&
+    Date.parse(record.expiresAt) - Date.parse(record.issuedAt) <= MAX_TTL_MS &&
+    typeof record.signature === "string" && HASH.test(record.signature));
+}
+
 /**
- * Verifies signed attestations from a trusted runner. The HMAC key must remain
- * outside the agent/tool process and be available only to the verifier service.
- * This module validates attestations; it does not itself execute builds/tests.
+ * Validates short-lived attestations from a trusted runner. The HMAC key must
+ * remain outside the agent/tool process and be available only to the verifier
+ * service. This module does not execute builds/tests or protect key custody.
  */
 export class VerificationEngine {
   #key;
   #trustedVerifiers;
   #clock;
   #records = new Map();
+  #revoked = new Set();
 
   constructor({ key, trustedVerifiers, clock = () => new Date() } = {}) {
     if (!(Buffer.isBuffer(key) || key instanceof Uint8Array || typeof key === "string") ||
@@ -63,8 +75,8 @@ export class VerificationEngine {
   }
 
   /**
-   * Called only by a separately trusted runner after it has executed and checked
-   * the real task. Never expose this method or its key to an untrusted agent.
+   * Called only by a separately trusted issuer after independent verification.
+   * Never expose this signing capability or its key to an untrusted agent.
    */
   attest({ verificationId, taskId, projectId, verifierId, outcome, resultHash, issuedAt, expiresAt }) {
     verificationId = requireString(verificationId, "verificationId");
@@ -95,40 +107,47 @@ export class VerificationEngine {
       schemaVersion: 1, verificationId, taskId, projectId, verifierId,
       outcome, resultHash, issuedAt: issued, expiresAt: expires,
     };
-    const signature = digest(this.#key, canonicalReport(report));
-    const signed = Object.freeze({ ...report, signature });
+    const signed = Object.freeze({ ...report, signature: digest(this.#key, canonicalReport(report)) });
     this.#records.set(verificationId, signed);
+    this.#revoked.delete(verificationId);
     return signed;
   }
 
   async verifyCompletion({ task, evidence } = {}) {
-    if (!task || !evidence || typeof evidence !== "object") return false;
-    const record = this.#records.get(evidence.verificationId);
-    if (!record || !HASH.test(evidence.resultHash ?? "")) return false;
+    if (!task || !evidence || typeof evidence !== "object" || !validTask(task)) return false;
+    const verificationId = evidence.verificationId;
+    if (!validId(verificationId) || this.#revoked.has(verificationId)) return false;
+    const record = this.#records.get(verificationId) ?? evidence.attestation;
+    if (!isValidSignedRecord(record) || record.verificationId !== verificationId) return false;
     if (record.taskId !== task.taskId || record.projectId !== task.projectId ||
         record.verifierId !== evidence.verifierId || record.outcome !== evidence.outcome ||
-        record.resultHash !== evidence.resultHash) return false;
+        record.resultHash !== evidence.resultHash || !HASH.test(evidence.resultHash ?? "")) return false;
     const nowValue = this.#clock();
     const now = nowValue instanceof Date ? nowValue.getTime() : Date.parse(nowValue);
     if (!Number.isFinite(now) || Date.parse(record.issuedAt) > now + 30_000 ||
         Date.parse(record.expiresAt) <= now) return false;
     if (!this.#trustedVerifiers.has(record.verifierId)) return false;
     const expected = Buffer.from(digest(this.#key, canonicalReport(record)), "hex");
-    let supplied;
-    try {
-      supplied = Buffer.from(record.signature, "hex");
-    } catch {
-      return false;
-    }
-    if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) return false;
-    return true;
+    const supplied = Buffer.from(record.signature, "hex");
+    return expected.length === supplied.length && timingSafeEqual(expected, supplied);
   }
 
   revoke(verificationId) {
-    return this.#records.delete(verificationId);
+    if (!validId(verificationId)) return false;
+    this.#revoked.add(verificationId);
+    this.#records.delete(verificationId);
+    return true;
   }
 
   has(verificationId) {
     return this.#records.has(verificationId);
   }
+}
+
+function validId(value) {
+  return typeof value === "string" && ID.test(value);
+}
+
+function validTask(task) {
+  return validId(task.taskId) && validId(task.projectId);
 }
