@@ -121,14 +121,14 @@ export class TaskOrchestrator {
       if (requiresApproval && !task.requiresApproval) {
         task = createTask({ ...snapshotInput(task), requiresApproval: true }, { now: task.createdAt });
       }
-      if (this.#tasks.has(task.taskId)) {
-        throw new TaskOrchestratorError("TASK_ALREADY_EXISTS", `task already exists: ${task.taskId}`);
-      }
       await this.#authorizeOrDeny({
         principalId,
         action: "task.create",
         resource: `project:${task.projectId}`,
       });
+      if (this.#tasks.has(task.taskId)) {
+        throw new TaskOrchestratorError("TASK_ALREADY_EXISTS", "task identifier is already in use");
+      }
 
       const event = await this.#appendOrInvalidate({
         type: "task.created",
