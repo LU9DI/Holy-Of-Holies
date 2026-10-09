@@ -23,3 +23,5 @@ export {
 export { WorkspaceManager, WorkspaceError } from "./workspace-manager.mjs";
 
 export { ToolRegistry, ToolRegistryError } from "./tool-registry.mjs";
+
+export { VerificationEngine, VerificationEngineError } from "./verification-engine.mjs";
