@@ -10,7 +10,7 @@
 
 ## Adversaries and untrusted inputs
 
-Assume model output, imported repositories, binaries, tool output, provider responses, network data and task descriptions can be malicious or malformed. A connected peer or installed tool is not trusted merely because it is reachable. Treat path names, archive contents, symbolic links, environment variables and serialized state as attack surfaces.
+Assume model output, imported repositories, binaries, tool output, provider responses, network data and task descriptions can be malicious or malformed. No external system—including Zion or REA—is required or inherently trusted. A connected peer or installed tool is not trusted merely because it is reachable or because the user enabled an adapter. Treat path names, archive contents, symbolic links, environment variables and serialized state as attack surfaces. Every integration is user-opt-in, least-privilege, and revocable.
 
 ## Authorization principles
 
@@ -65,3 +65,8 @@ Verification lifecycle events are recorded in the local hash-chained ledger. The
 
 
 Signed attestation persistence stores the complete signed record, not the signing key. The verifier can validate the signature without an in-memory issuance cache, allowing restart-safe verification. The optional `RevocationRegistry` persists revocations as `verification.revoked` events in the hash-chained ledger and checks the ledger on each completion verification. When the registry cannot be read, verification fails closed. This is durable across process restarts when the same intact ledger is reused, but a privileged attacker who can rewrite the complete ledger can also remove revocation events. Compare-and-append protects verification-ID claims within a shared ledger, but does not coordinate independent ledger copies or provide general transactional crash recovery. Stale locks remain fail-closed.
+
+
+## Standalone operation and optional integrations
+
+Holy of Holies must not require Zion, REA, a hosted model, or another external service for core local workflows. Integration must never be silently activated. The user controls whether to connect a system, which capabilities to expose, what data may cross the boundary, and when to disconnect it. Adapters must fail closed when authorization or capability declarations are missing, and disabling an adapter must not erase core records. The core's security and correctness must not depend on the availability or trustworthiness of any optional integration.
