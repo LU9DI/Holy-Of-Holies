@@ -44,7 +44,7 @@ Early core foundation. The task and provider APIs are expected to evolve before 
 
 ## Tool Registry
 
-The core now exposes `ToolRegistry` for explicit tool allowlisting. Each registered tool declares strict JSON input/output contracts, whether it is read-only, and bounded input/output sizes and execution time. Every invocation is checked against the configured policy evaluator. Side-effecting tools require an independently verified, short-lived approval record through an injected `verifyApproval` function; caller-supplied approval metadata alone is not trusted.
+The core now exposes `ToolRegistry` for explicit tool allowlisting. Each registered tool declares strict JSON input/output contracts, whether it is read-only, and bounded input/output sizes and execution time. Every invocation is checked against the configured policy evaluator. Side-effecting tools require a short-lived approval record consumed through an injected `consumeApproval` function. The consumer must atomically claim each approval ID as single-use in durable shared storage; caller-supplied metadata alone is not trusted. The registry fails closed when atomic consumption is unavailable or rejects a replay. If cancellation arrives after consumption but before dispatch, the approval remains consumed and must be reissued.
 
 Cancellation and timeout signals are cooperative. They do **not** terminate hostile code running inside the same process. Do not register untrusted handlers in-process; production execution requires a separately hardened OS/container boundary, credential scoping, and resource enforcement.
 
