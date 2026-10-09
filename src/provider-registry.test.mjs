@@ -223,3 +223,41 @@ test("fails closed if an adapter is removed during its status probe", async () =
   );
   assert.equal(calls, 0);
 });
+
+
+test("core provider registry is usable with no integrations installed", async () => {
+  const registry = new ProviderRegistry({ authorize: async () => ({ allowed: true }) });
+  assert.deepEqual(registry.list(), []);
+  await assert.rejects(
+    registry.resolve({ providerId: "zion.transport", capability: "transport.send" }),
+    (error) => error.code === "PROVIDER_NOT_REGISTERED",
+  );
+});
+
+test("cancellation during provider status probe prevents dispatch", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const registry = new ProviderRegistry({ authorize: async () => ({ allowed: true }) });
+  registry.register(adapter("optional.cancellable", {
+    getStatus: async () => {
+      controller.abort();
+      return { available: true };
+    },
+    invoke: async () => {
+      calls += 1;
+      return { ok: true };
+    },
+  }));
+
+  await assert.rejects(
+    registry.invoke({
+      providerId: "optional.cancellable",
+      capability: "analysis.read",
+      principalId: "user:owner",
+      input: {},
+      signal: controller.signal,
+    }),
+    (error) => error.code === "PROVIDER_CALL_CANCELLED",
+  );
+  assert.equal(calls, 0);
+});
