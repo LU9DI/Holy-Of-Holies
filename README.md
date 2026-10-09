@@ -62,3 +62,10 @@ The issuer is an interface, not a built-in isolated service. The deployment must
 
 
 For successful runs, `completionEvidence` is returned in the exact envelope expected by the completion verifier: verification ID, trusted verifier ID, outcome, result hash, and the complete signed attestation. Pass this evidence to the task transition that requests `verifying → completed`; the orchestrator still invokes its independently configured verifier and fails closed if verification is unavailable or returns false.
+
+
+## Interrupted Side-Effect Reconciliation
+
+`OperationRecovery` records operations whose external outcome is unknown after an interruption, using the durable hash-chained `EventLedger`. Reusing an operation ID with different input metadata is rejected; repeated identical interruption records are idempotent. A separate principal must resolve the record with a bounded evidence reference, choosing only `confirmed_succeeded`, `confirmed_failed`, or `confirmed_not_executed`. Resolutions are durable and conflicting second resolutions fail closed.
+
+**This is reconciliation, not exactly-once execution.** The component never retries an operation automatically and does not itself prove that an evidence reference is truthful or enforce the resolver's organizational role. Deployments must authenticate/authorize the resolving principal and validate evidence independently. A `confirmed_not_executed` result is a recorded operator decision, not permission for this component to dispatch a retry.
