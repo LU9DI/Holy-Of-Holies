@@ -1,6 +1,6 @@
 # Holy of Holies
 
-Holy of Holies is the sovereign, open-source orchestration core for a free, decentralized and security-first software engineering platform.
+Holy of Holies is the sovereign, open-source orchestration core for a free, decentralized and security-first software engineering platform. The core is licensed under **GNU AGPL-3.0-or-later**, chosen as an initial copyleft default so modified network-served versions remain available to their users. This is a project licensing decision, not legal advice.
 
 This repository is the **Holy of Holies core**, not the Zion implementation. Zion is maintained separately and must be integrated only through versioned external adapters/contracts. REA is an external engineering-analysis capability, not the core itself.
 
@@ -39,4 +39,4 @@ npm test
 
 ## Status
 
-Early core foundation. The task and provider APIs are expected to evolve before a stable release. The repository is public, but a formal open-source release must not be declared until the project license, contribution policy and release verification are finalized.
+Early core foundation. The task and provider APIs are expected to evolve before a stable release. The project license is now declared. A formal release still requires a contribution policy, dependency/notice audit, security review and release verification.
