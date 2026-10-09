@@ -31,7 +31,7 @@ export class ProviderRegistry {
     if (!adapter || typeof adapter !== "object") {
       throw new TypeError("provider adapter is required");
     }
-    const { providerId, contractVersion, capabilities, getStatus, invoke } = adapter;
+    const { providerId, contractVersion, capabilities, getStatus, validateInput, validateOutput, invoke } = adapter;
     if (!validProviderId(providerId)) {
       throw new TypeError("providerId has an invalid format");
     }
@@ -43,8 +43,9 @@ export class ProviderRegistry {
         new Set(capabilities).size !== capabilities.length) {
       throw new TypeError("provider capabilities must be non-empty, unique strings");
     }
-    if (typeof getStatus !== "function" || typeof invoke !== "function") {
-      throw new TypeError("provider must implement getStatus and invoke");
+    if (typeof getStatus !== "function" || typeof validateInput !== "function" ||
+        typeof validateOutput !== "function" || typeof invoke !== "function") {
+      throw new TypeError("provider must implement getStatus, validateInput, validateOutput and invoke");
     }
     if (this.#providers.has(providerId)) {
       throw new ProviderRegistryError("PROVIDER_ALREADY_REGISTERED", `provider already registered: ${providerId}`);
@@ -136,7 +137,17 @@ export class ProviderRegistry {
     await this.resolve({ providerId, capability });
     const entry = this.#providers.get(providerId);
     try {
-      return await entry.adapter.invoke({
+      if (entry.adapter.validateInput(capability, input) !== true) {
+        throw new ProviderRegistryError("PROVIDER_INPUT_INVALID", "provider input did not pass its declared validator");
+      }
+    } catch (error) {
+      if (error instanceof ProviderRegistryError) throw error;
+      throw new ProviderRegistryError("PROVIDER_INPUT_INVALID", "provider input validation failed");
+    }
+
+    let output;
+    try {
+      output = await entry.adapter.invoke({
         capability,
         input,
         context: Object.freeze({ providerId, principalId, signal }),
@@ -147,5 +158,15 @@ export class ProviderRegistry {
       }
       throw error;
     }
+
+    try {
+      if (entry.adapter.validateOutput(capability, output) !== true) {
+        throw new ProviderRegistryError("PROVIDER_OUTPUT_INVALID", "provider output did not pass its declared validator");
+      }
+    } catch (error) {
+      if (error instanceof ProviderRegistryError) throw error;
+      throw new ProviderRegistryError("PROVIDER_OUTPUT_INVALID", "provider output validation failed");
+    }
+    return output;
   }
 }
