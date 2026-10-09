@@ -106,3 +106,18 @@ test("approval-consumption failure blocks dispatch and leaves no operation inten
   assert.equal(env.dispatched, 0);
   assert.equal((await env.ledger.read()).length, 0);
 });
+
+
+test("concurrent duplicate operation IDs never dispatch the side effect twice", async (t) => {
+  const env = await setup(t);
+  const outcomes = await Promise.allSettled([
+    env.tools.invoke(request),
+    env.tools.invoke(request),
+  ]);
+  assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 1);
+  const rejected = outcomes.find((item) => item.status === "rejected");
+  assert.equal(rejected.reason.code, "OPERATION_ALREADY_CLAIMED");
+  assert.equal(env.dispatched, 1);
+  assert.equal((await env.recovery.get(request.operationId)).status, "completed");
+  assert.equal((await env.ledger.read()).filter((event) => event.type === "operation.started").length, 1);
+});
