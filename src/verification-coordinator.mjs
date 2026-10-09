@@ -143,6 +143,10 @@ export class VerificationCoordinator {
             verifierId: principalId,
             outcome: "passed",
             resultHash: report.resultHash,
+            ...(typeof report.workspaceHash === "string" ? {
+              workspaceHash: report.workspaceHash,
+              workspaceHashAfter: report.workspaceHashAfter,
+            } : {}),
           });
         } catch {
           await this.#ledger.append({
@@ -204,6 +208,10 @@ export class VerificationCoordinator {
         verifierId: attestation.verifierId,
         outcome: attestation.outcome,
         resultHash: attestation.resultHash,
+        ...(typeof attestation.workspaceHash === "string" ? {
+          workspaceHash: attestation.workspaceHash,
+          workspaceHashAfter: attestation.workspaceHashAfter,
+        } : {}),
         attestation,
       }) : null;
       return Object.freeze({ report: Object.freeze(result), attestation, completionEvidence });
