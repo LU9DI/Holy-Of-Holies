@@ -16,11 +16,13 @@ This repository owns orchestration and policy contracts. It does not own the Zio
 
 - **Task machine**: validates task input and legal lifecycle transitions.
 - **Policy engine**: exact-match rules, deny overrides, temporal constraints and fail-closed handling of malformed policy documents.
-- **Task orchestrator (next)**: scheduling, dependency graph, concurrency, cancellation, deadlines and recovery.
+- **Task orchestrator**: replays durable events, serializes local state changes, uses compare-and-append to detect stale writers, enforces policy checks, and requires resume verification.
+- **Event ledger**: append-only JSONL records with sequence numbers, SHA-256 hash chaining, fsync and lock-based writer coordination.
+- **Provider registry**: explicit provider selection, declared capabilities, status probing and policy authorization before invocation.
 - **Workspace manager (next)**: scoped file access, diff generation, checkpoints and safe restoration.
-- **Tool registry (next)**: typed schemas, declared capabilities and enforced permission boundaries.
-- **Evidence / audit (next)**: append-only operation records with secret redaction and provenance.
-- **Provider gateway (next)**: adapter contracts for REA, model providers and later Zion integration.
+- **Tool registry with schema enforcement (next)**: typed input/output schemas and operating-system permission boundaries.
+- **Evidence / audit hardening (next)**: secret redaction, signed provenance and external anchoring.
+- **Provider adapters (next)**: REA, model providers and later Zion integration.
 
 ## Lifecycle invariants
 
