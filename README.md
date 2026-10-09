@@ -47,3 +47,9 @@ Early core foundation. The task and provider APIs are expected to evolve before 
 The core now exposes `ToolRegistry` for explicit tool allowlisting. Each registered tool declares strict JSON input/output contracts, whether it is read-only, and bounded input/output sizes and execution time. Every invocation is checked against the configured policy evaluator. Side-effecting tools require an independently verified, short-lived approval record through an injected `verifyApproval` function; caller-supplied approval metadata alone is not trusted.
 
 Cancellation and timeout signals are cooperative. They do **not** terminate hostile code running inside the same process. Do not register untrusted handlers in-process; production execution requires a separately hardened OS/container boundary, credential scoping, and resource enforcement.
+
+## Verification Runner
+
+`VerificationRunner` executes only explicitly configured commands, with a fixed executable and argument list, no shell, policy authorization, timeouts, output limits, and hashed reports. A passing exit code is necessary but not sufficient: a trusted verification service must independently issue the signed attestation consumed by `VerificationEngine`.
+
+This runner is a constrained process launcher, **not a security sandbox**. It does not provide CPU/memory quotas, network isolation, filesystem isolation, syscall filtering, or a reliable way to kill descendants. Do not run untrusted project code directly on the host. Use a disposable, separately hardened worker/container with restricted credentials, filesystem, network and resource limits; persist signed evidence outside the worker.
