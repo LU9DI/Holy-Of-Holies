@@ -229,3 +229,56 @@ test("rejects attestation with malformed or excessive validity window", async (t
     verificationId: "verify-invalid-window", taskId: "task-1", projectId: "project-1", commandId: "check", principalId: "ci",
   }), (error) => error.code === "INVALID_ATTESTATION");
 });
+
+
+test("reports interrupted verifications without retrying commands", async (t) => {
+  const { ledger, runner } = await fixture(t);
+  let runs = 0;
+  const countingRunner = { run: async (input) => { runs += 1; return runner.run(input); } };
+  await ledger.append({
+    type: "verification.started",
+    at: "2026-10-09T12:00:00.000Z",
+    payload: {
+      verificationId: "verify-crash",
+      taskId: "task-crash",
+      projectId: "project-1",
+      commandId: "check",
+      principalId: "ci",
+    },
+  });
+  await ledger.append({
+    type: "verification.started",
+    at: "2026-10-09T12:01:00.000Z",
+    payload: {
+      verificationId: "verify-finished",
+      taskId: "task-finished",
+      projectId: "project-1",
+      commandId: "check",
+      principalId: "ci",
+    },
+  });
+  await ledger.append({
+    type: "verification.completed",
+    at: "2026-10-09T12:02:00.000Z",
+    payload: { verificationId: "verify-finished", outcome: "failed" },
+  });
+
+  const coordinator = new VerificationCoordinator({
+    runner: countingRunner,
+    ledger,
+    attest: async (input) => issuer({ ...input, verifierId: "ci:trusted" }),
+  });
+  const pending = await coordinator.inspectRecoveries();
+  assert.equal(pending.length, 1);
+  assert.deepEqual(pending[0], {
+    verificationId: "verify-crash",
+    taskId: "task-crash",
+    projectId: "project-1",
+    commandId: "check",
+    principalId: "ci",
+    startedAt: "2026-10-09T12:00:00.000Z",
+    status: "unknown_after_interruption",
+  });
+  assert.equal(runs, 0, "inspection must not execute potentially duplicated work");
+  assert.equal((await coordinator.inspectRecoveries()).length, 1, "inspection is read-only and repeatable");
+});
