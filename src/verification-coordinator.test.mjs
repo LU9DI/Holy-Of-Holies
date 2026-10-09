@@ -282,3 +282,20 @@ test("reports interrupted verifications without retrying commands", async (t) =>
   assert.equal(runs, 0, "inspection must not execute potentially duplicated work");
   assert.equal((await coordinator.inspectRecoveries()).length, 1, "inspection is read-only and repeatable");
 });
+
+
+test("rejects an expired attestation", async (t) => {
+  const { ledger, runner } = await fixture(t);
+  const coordinator = new VerificationCoordinator({
+    runner, ledger,
+    attest: async (input) => ({
+      ...issuer({ ...input, verifierId: "ci:trusted" }),
+      issuedAt: "2026-10-09T11:50:00.000Z",
+      expiresAt: "2026-10-09T11:55:00.000Z",
+    }),
+    clock: () => new Date("2026-10-09T12:00:00.000Z"),
+  });
+  await assert.rejects(coordinator.execute({
+    verificationId: "verify-expired", taskId: "task-1", projectId: "project-1", commandId: "check", principalId: "ci",
+  }), (error) => error.code === "INVALID_ATTESTATION");
+});
