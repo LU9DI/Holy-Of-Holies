@@ -93,7 +93,7 @@ export class OperationRecovery {
     validateBinding({ operationId, principalId, toolId, inputHash });
     if (typeof reason !== "string" || reason.trim().length < 1 || reason.length > 500) throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "reason must contain 1-500 characters");
     const payload = { operationId, principalId, toolId, inputHash, reason: reason.trim() };
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
       const snapshot = await this.#snapshot();
       const existing = snapshot.get(operationId);
       if (existing) {
@@ -104,7 +104,11 @@ export class OperationRecovery {
       try {
         const event = await this.#ledger.append({ type: "operation.interrupted", payload, at: this.#now(), expectedHeadHash: events.at(-1)?.hash ?? "0".repeat(64) });
         return Object.freeze({ operationId, eventHash: event.hash, duplicate: false });
-      } catch (error) { if (!String(error?.message ?? "").includes("head changed")) throw error; }
+      } catch (error) {
+        const message = String(error?.message ?? "");
+        if (!message.includes("head changed") && !message.includes("event ledger is locked")) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
     }
     throw new OperationRecoveryError("LEDGER_CONTENTION", "could not safely record operation after concurrent ledger updates");
   }
