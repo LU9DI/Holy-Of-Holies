@@ -52,3 +52,8 @@ The current core does not yet provide cryptographic user identity, signed policy
 ## Independent verification boundary
 
 The verification engine accepts only short-lived signed attestations from configured trusted verifier IDs, bound to a task, project, outcome, and result hash. It does not execute tests or build artifacts itself. The attestation signing capability and key must remain in a separate trusted runner/service and must never be exposed to the planner, tool handlers, or model. The current reference implementation stores attestations in memory; restart-safe persistence and separate signing/verifying principals are production prerequisites.
+
+
+## Verification runner
+
+The runner allowlists command IDs and fixes each executable, argument vector, exit-code policy, timeout and output budget in trusted configuration. It uses no shell and fails closed on missing authorization. These controls reduce accidental command injection but do not make arbitrary repository code safe: a child process can access the host's OS permissions and may spawn descendants. Run untrusted builds/tests only in a disposable OS/container/VM boundary with network policy, restricted mounts and credentials, CPU/memory/PID quotas, and cleanup after termination. Hashes prove report integrity relative to the report, not that a trusted test suite was correctly chosen or that the code is secure.
