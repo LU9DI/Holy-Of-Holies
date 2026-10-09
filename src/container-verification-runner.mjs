@@ -299,7 +299,7 @@ export class ContainerVerificationRunner {
     let workspaceHashAfter = null;
     let workspaceChanged = true;
     try {
-      workspaceHashAfter = await workspaceDigest(root, { maxBytes: this.#maxWorkspaceBytes, maxFiles: this.#maxWorkspaceFiles });
+      workspaceHashAfter = await computeWorkspaceDigest(root, { maxBytes: this.#maxWorkspaceBytes, maxFiles: this.#maxWorkspaceFiles });
       workspaceChanged = workspaceHashAfter !== workspaceHash;
     } catch {
       workspaceChanged = true;
