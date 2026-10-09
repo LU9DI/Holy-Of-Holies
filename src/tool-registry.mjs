@@ -247,7 +247,7 @@ export class ToolRegistry {
           toolId,
           action: "tool.invoke.side_effect",
           resource: `tool:${toolId}`,
-          inputHash: sha256Json(input),
+          inputHash: sha256Json(cloneJson(input)),
         }) === true;
       } catch {
         consumed = false;
