@@ -27,3 +27,5 @@ export { ToolRegistry, ToolRegistryError } from "./tool-registry.mjs";
 export { VerificationEngine, VerificationEngineError } from "./verification-engine.mjs";
 
 export { VerificationRunner, VerificationRunnerError } from "./verification-runner.mjs";
+
+export { VerificationCoordinator, VerificationCoordinatorError } from "./verification-coordinator.mjs";
