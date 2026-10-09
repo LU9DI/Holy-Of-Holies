@@ -40,7 +40,7 @@ export class EventLedger {
     this.#lockPath = `${path}.lock`;
   }
 
-  async append({ type, payload, at = new Date().toISOString() }) {
+  async append({ type, payload, at = new Date().toISOString(), expectedHeadHash }) {
     if (!nonEmpty(type)) throw new TypeError("event type must be a non-empty string");
     if (!payload || typeof payload !== "object") {
       throw new TypeError("event payload must be an object or array");
@@ -57,6 +57,15 @@ export class EventLedger {
     return this.#serialize(() => this.#withLock(async () => {
       const previousEvents = await this.#readAndVerify();
       const previous = previousEvents.at(-1);
+      const actualHeadHash = previous ? previous.hash : GENESIS_HASH;
+      if (expectedHeadHash !== undefined) {
+        if (typeof expectedHeadHash !== "string" || !/^[a-f0-9]{64}$/.test(expectedHeadHash)) {
+          throw new TypeError("expectedHeadHash must be a SHA-256 hex digest");
+        }
+        if (expectedHeadHash !== actualHeadHash) {
+          throw new Error("event ledger head changed; reload and retry");
+        }
+      }
       const body = eventBody({
         sequence: previous ? previous.sequence + 1 : 1,
         previousHash: previous ? previous.hash : GENESIS_HASH,
