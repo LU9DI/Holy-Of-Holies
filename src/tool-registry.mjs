@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createIdempotencyKey } from "./idempotency-key.mjs";
 
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 
@@ -167,11 +168,14 @@ export class ToolRegistry {
 
   register(definition) {
     if (!definition || typeof definition !== "object") throw new TypeError("tool definition is required");
-    const { toolId, description, inputSchema, outputSchema, readOnly, handler, limits = {} } = definition;
+    const { toolId, description, inputSchema, outputSchema, readOnly, handler, limits = {}, providerScope } = definition;
     if (typeof toolId !== "string" || !ID.test(toolId)) throw new TypeError("toolId has an invalid format");
     if (!nonEmpty(description) || description.length > 500) throw new TypeError("tool description must be 1-500 characters");
     if (typeof readOnly !== "boolean") throw new TypeError("readOnly must be explicitly true or false");
     if (typeof handler !== "function") throw new TypeError("tool handler must be a function");
+    if (providerScope !== undefined && (readOnly || typeof providerScope !== "string" || providerScope.trim().length === 0 || providerScope !== providerScope.trim() || providerScope.length > 256)) {
+      throw new TypeError("providerScope is allowed only for side-effecting tools and must be a trimmed non-empty string of at most 256 characters");
+    }
     if (this.#tools.has(toolId)) throw new ToolRegistryError("TOOL_ALREADY_REGISTERED", `tool already registered: ${toolId}`);
 
     const input = freezeDeep(cloneJson(inputSchema));
@@ -189,6 +193,7 @@ export class ToolRegistry {
     }
     const descriptor = freezeDeep({
       toolId, description, readOnly,
+      ...(providerScope !== undefined ? { providerScope } : {}),
       inputSchema: input,
       outputSchema: output,
       limits: effectiveLimits,
@@ -230,9 +235,9 @@ export class ToolRegistry {
     }
 
     if (signal?.aborted) throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled before dispatch");
-    if (!descriptor.readOnly && this.#operationJournal &&
+    if (!descriptor.readOnly && (this.#operationJournal || descriptor.providerScope !== undefined) &&
         (typeof operationId !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(operationId))) {
-      throw new ToolRegistryError("OPERATION_ID_REQUIRED", "durably journaled side effects require a stable operationId");
+      throw new ToolRegistryError("OPERATION_ID_REQUIRED", "side effects with durable journaling or provider idempotency require a stable operationId");
     }
 
     let inputBytes;
@@ -310,6 +315,7 @@ export class ToolRegistry {
           toolId,
           principalId,
           ...(operationId ? { operationId } : {}),
+          ...(descriptor.providerScope !== undefined ? { idempotencyKey: createIdempotencyKey({ providerScope: descriptor.providerScope, operationId }) } : {}),
           signal: controller.signal,
           ...(approval ? { approval: Object.freeze({ approvalId: approval.approvalId, approvedBy: approval.approvedBy }) } : {}),
         }),
