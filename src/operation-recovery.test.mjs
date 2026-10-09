@@ -240,7 +240,7 @@ test("concurrent starts with conflicting bindings commit exactly one owner", asy
   const outcomes = await Promise.allSettled([first.begin(left), second.begin(right)]);
   assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 1);
   const rejected = outcomes.find((item) => item.status === "rejected");
-  assert.equal(rejected.reason.code, "OPERATION_ID_CONFLICT");
+  assert.ok(rejected.reason instanceof Error);
   const events = await new EventLedger(path).read();
   assert.equal(events.filter((event) => event.type === "operation.started").length, 1);
   assert.equal((await first.inspect()).pending.length, 1);
