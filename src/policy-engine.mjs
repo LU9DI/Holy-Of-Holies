@@ -51,8 +51,8 @@ export function evaluatePolicy(request = {}) {
     return Object.freeze({ allowed: false, reason: "invalid_clock", matchedRuleIds: [] });
   }
 
-  const request = { principalId, action, resource };
-  const matches = rules.filter((rule) => matchesRule(rule, request, nowMs));
+  const policyRequest = { principalId, action, resource };
+  const matches = rules.filter((rule) => matchesRule(rule, policyRequest, nowMs));
   const denies = matches.filter((rule) => rule.effect === "deny");
   if (denies.length > 0) {
     return Object.freeze({
