@@ -196,3 +196,30 @@ test("unregister requires an explicit valid provider ID", () => {
     (error) => error.code === "INVALID_PROVIDER_REQUEST",
   );
 });
+
+
+test("fails closed if an adapter is removed during its status probe", async () => {
+  const registry = new ProviderRegistry({ authorize: async () => ({ allowed: true }) });
+  let calls = 0;
+  registry.register(adapter("optional.racy", {
+    getStatus: async () => {
+      registry.unregister("optional.racy");
+      return { available: true };
+    },
+    invoke: async () => {
+      calls += 1;
+      return { ok: true };
+    },
+  }));
+
+  await assert.rejects(
+    registry.invoke({
+      providerId: "optional.racy",
+      capability: "analysis.read",
+      principalId: "user:owner",
+      input: {},
+    }),
+    (error) => error.code === "PROVIDER_NOT_REGISTERED",
+  );
+  assert.equal(calls, 0);
+});
