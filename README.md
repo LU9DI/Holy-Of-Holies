@@ -129,3 +129,28 @@ For a side-effecting tool with a fixed provider-account boundary, declare `provi
 
 Use a separate registry/tool configuration for each provider-account scope, or otherwise ensure the scope is selected from trusted configuration rather than caller-controlled input. Do not generate a fresh operation ID for a retry. A stable key only protects against duplicates if the provider actually honors it; recovery remains manual and evidence-backed when the remote outcome is uncertain.
 
+
+#### Evidence-verified provider reconciliation adapter
+
+The exported `reconcileProviderOperation()` helper provides a fail-closed contract for deployments that can query a provider's authoritative operation state. It receives a configured `providerScope`, derives the same deterministic idempotency key, and passes the expected operation ID, scope, key, principal, tool, and input hash to the injected lookup adapter. The returned status must explicitly be `confirmed_succeeded`, `confirmed_failed`, `confirmed_not_executed`, or `unknown`, and the operation ID, provider scope, and key must exactly match the expected binding.
+
+Only a non-unknown result proceeds to the injected `verifyEvidence` callback. That callback must authenticate the evidence and confirm it is bound to the exact operation, provider account/scope, idempotency key, and status; the helper requires an explicit `verified: true` result and a bounded evidence reference before writing a durable resolution. The helper does not treat a lookup exception, missing record, malformed response, or failed verification as proof of non-execution. An `unknown` status remains unresolved. No path in this helper dispatches or retries the side effect.
+
+```js
+import { reconcileProviderOperation } from "holy-of-holies-core";
+
+const result = await reconcileProviderOperation({
+  recovery,
+  operationId,
+  providerScope: "payments:merchant-42", // trusted configuration, never caller input
+  resolvedBy: "operator:reviewer", // authenticated independent principal
+  lookupOperation: providerAdapter.lookupOperation,
+  verifyEvidence: providerAdapter.verifyEvidence,
+});
+
+if (!result.resolved) {
+  // Keep the operation pending for independent investigation; do not retry.
+}
+```
+
+These injected callbacks are security-critical trust boundaries, not generic provider integrations supplied by the core. The deployment must authenticate the provider response, validate account/tenant identity and operation/key binding, enforce authorization for the independent resolver, and ensure evidence references are durable and auditable. A boolean from an untrusted adapter is not proof. Provider lookup semantics, idempotency retention, and the authenticity of provider receipts must be validated for each concrete provider.
