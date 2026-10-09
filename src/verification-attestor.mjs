@@ -66,6 +66,7 @@ export class VerificationAttestor {
     const report = {
       schemaVersion: 3, verificationId, taskId, projectId, verifierId, outcome, resultHash,
       issuedAt: issued, expiresAt: expires,
+      ...(workspaceHash !== undefined ? { workspaceHash, workspaceHashAfter } : {}),
     };
     const signature = sign(null, Buffer.from(canonicalReport(report), "utf8"), this.#privateKey).toString("hex");
     this.#issued.add(verificationId);
