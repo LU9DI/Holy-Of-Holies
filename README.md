@@ -14,7 +14,7 @@ This repository is the **Holy of Holies core**, not the Zion implementation. Zio
 
 ## Initial implementation
 
-The current foundation includes a task state machine, fail-closed policy evaluator, tamper-evident JSONL event ledger, durable task orchestrator, explicitly selected provider registry, and scoped workspace reads/atomic writes with path-containment checks. Automated tests and a GitHub Actions workflow exercise these modules. This is a foundation, not a claim that the full platform, distributed networking, sandboxing, or autonomous engineering workflow is complete.
+The current foundation includes a task state machine, fail-closed policy evaluator, tamper-evident JSONL event ledger, durable task orchestrator, explicitly selected provider registry with input/output validators, and scoped workspace reads/atomic writes with path-containment checks. Task completion requires structured evidence and an independently supplied verification callback; no built-in verifier is claimed yet. Automated tests and a GitHub Actions workflow exercise these modules. This is a foundation, not a claim that the full platform, distributed networking, sandboxing, or autonomous engineering workflow is complete.
 
 ## Requirements
 
