@@ -150,3 +150,35 @@ test("a recreated registry cannot redispatch a completed operation after restart
   assert.equal((await env.ledger.read()).filter((event) => event.type === "operation.started").length, 1);
   assert.equal((await env.ledger.read()).filter((event) => event.type === "operation.completed").length, 1);
 });
+
+
+test("a restarted registry never retries an operation whose external outcome is uncertain", async (t) => {
+  const env = await setup(t, { appendFailure: (event) => event.type === "operation.completed" });
+  await assert.rejects(
+    env.tools.invoke(request),
+    (error) => error.code === "OPERATION_JOURNAL_COMPLETE_FAILED" && error.outcomeUnknown === true,
+  );
+  assert.equal(env.dispatched, 1);
+
+  let restartedDispatches = 0;
+  const restartedRecovery = new OperationRecovery({ ledger: new EventLedger(env.path), clock: now });
+  const restartedTools = new ToolRegistry({
+    authorize: async () => ({ allowed: true }),
+    consumeApproval: async () => true,
+    operationJournal: restartedRecovery,
+    clock: now,
+  });
+  restartedTools.register(definition(async () => {
+    restartedDispatches += 1;
+    return { ok: true };
+  }));
+
+  await assert.rejects(
+    restartedTools.invoke(request),
+    (error) => error.code === "OPERATION_ALREADY_CLAIMED",
+  );
+  assert.equal(restartedDispatches, 0);
+  assert.equal((await restartedRecovery.get(request.operationId)).status, "in_flight_after_restart");
+  assert.equal((await env.ledger.read()).filter((event) => event.type === "operation.started").length, 1);
+  assert.equal((await env.ledger.read()).filter((event) => event.type === "operation.completed").length, 0);
+});
