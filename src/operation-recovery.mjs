@@ -88,6 +88,62 @@ export class OperationRecovery {
     throw new OperationRecoveryError("LEDGER_CONTENTION", "could not safely record resolution after concurrent ledger updates");
   }
 
+  /**
+   * Rebuilds the recovery view exclusively from the durable ledger after restart.
+   * Semantic inconsistencies fail closed rather than silently choosing a record.
+   */
+  async inspect() {
+    const events = await this.#ledger.read();
+    const operations = new Map();
+    for (const event of events) {
+      if (event.type !== "operation.interrupted" && event.type !== "operation.resolved") continue;
+      const payload = event.payload;
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "operation event has an invalid payload");
+      }
+      requireId(payload.operationId, "operationId");
+      const current = operations.get(payload.operationId) ?? { interrupted: null, resolution: null };
+      if (event.type === "operation.interrupted") {
+        requireId(payload.principalId, "principalId");
+        requireId(payload.toolId, "toolId");
+        if (typeof payload.inputHash !== "string" || !HASH.test(payload.inputHash) ||
+            typeof payload.reason !== "string" || payload.reason.trim().length < 1 || payload.reason.length > 500 ||
+            current.interrupted) {
+          throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "duplicate or malformed interruption record");
+        }
+        current.interrupted = payload;
+      } else {
+        requireId(payload.resolvedBy, "resolvedBy");
+        if (!RESOLUTIONS.has(payload.resolution) ||
+            typeof payload.evidenceRef !== "string" || payload.evidenceRef.trim().length < 1 ||
+            payload.evidenceRef.length > 500 || current.resolution) {
+          throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "duplicate or malformed resolution record");
+        }
+        current.resolution = payload;
+      }
+      operations.set(payload.operationId, current);
+    }
+    const pending = [];
+    const resolved = [];
+    for (const [operationId, record] of operations) {
+      if (!record.interrupted) {
+        throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "resolution exists without an interruption record");
+      }
+      if (record.resolution) resolved.push(Object.freeze({
+        operationId, status: "resolved", interrupted: Object.freeze({ ...record.interrupted }),
+        resolution: Object.freeze({ ...record.resolution }), retryAutomatically: false,
+      }));
+      else pending.push(Object.freeze({
+        operationId, status: "unknown_after_interruption", interrupted: Object.freeze({ ...record.interrupted }),
+        retryAutomatically: false,
+      }));
+    }
+    const order = (a, b) => a.operationId.localeCompare(b.operationId);
+    pending.sort(order);
+    resolved.sort(order);
+    return Object.freeze({ pending: Object.freeze(pending), resolved: Object.freeze(resolved), retryAutomatically: false });
+  }
+
   async get(operationId) {
     requireId(operationId, "operationId");
     const events = await this.#ledger.read();
