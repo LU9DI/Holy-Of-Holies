@@ -1,7 +1,7 @@
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 const HASH = /^[a-f0-9]{64}$/;
 const RESOLUTIONS = new Set(["confirmed_succeeded", "confirmed_failed", "confirmed_not_executed"]);
-const BINDING = ["principalId", "toolId", "inputHash"];
+const BINDING = ["principalId", "toolId", "inputHash", "providerScope"];
 
 export class OperationRecoveryError extends Error {
   constructor(code, message) { super(message); this.name = "OperationRecoveryError"; this.code = code; }
@@ -9,9 +9,14 @@ export class OperationRecoveryError extends Error {
 function requireId(value, field) {
   if (typeof value !== "string" || !ID.test(value)) throw new OperationRecoveryError("INVALID_OPERATION_RECORD", `${field} has an invalid format`);
 }
-function validateBinding({ operationId, principalId, toolId, inputHash }) {
+function validateBinding({ operationId, principalId, toolId, inputHash, providerScope }) {
   requireId(operationId, "operationId"); requireId(principalId, "principalId"); requireId(toolId, "toolId");
   if (typeof inputHash !== "string" || !HASH.test(inputHash)) throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "inputHash must be a SHA-256 hex digest");
+  if (providerScope !== undefined &&
+      (typeof providerScope !== "string" || providerScope.trim().length === 0 ||
+       providerScope.length > 256 || providerScope !== providerScope.trim())) {
+    throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "providerScope must be a trimmed non-empty string of at most 256 characters");
+  }
 }
 function sameBinding(a, b) { return BINDING.every((key) => a[key] === b[key]); }
 
@@ -57,8 +62,8 @@ export class OperationRecovery {
   }
 
   /** ToolRegistry journal hook: a post-dispatch failure is an uncertain outcome. */
-  async interrupt({ operationId, principalId, toolId, inputHash, reason }) {
-    const binding = { operationId, principalId, toolId, inputHash };
+  async interrupt({ operationId, principalId, toolId, inputHash, providerScope, reason }) {
+    const binding = { operationId, principalId, toolId, inputHash, ...(providerScope !== undefined ? { providerScope } : {}) };
     validateBinding(binding);
     if (typeof reason !== "string" || reason.trim().length < 1 || reason.length > 500) throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "reason must contain 1-500 characters");
     await this.#appendTransition("operation.interrupted", { ...binding, reason: reason.trim() }, (record) => {
@@ -75,8 +80,8 @@ export class OperationRecovery {
   }
 
   /** Record a cancellation known to happen before handler dispatch. */
-  async abortBeforeDispatch({ operationId, principalId, toolId, inputHash, reason }) {
-    const binding = { operationId, principalId, toolId, inputHash };
+  async abortBeforeDispatch({ operationId, principalId, toolId, inputHash, providerScope, reason }) {
+    const binding = { operationId, principalId, toolId, inputHash, ...(providerScope !== undefined ? { providerScope } : {}) };
     validateBinding(binding);
     if (reason !== "cancelled_before_dispatch") throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "pre-dispatch abort reason is not recognized");
     await this.#appendTransition("operation.aborted_before_dispatch", { ...binding, reason }, (record) => {
@@ -92,10 +97,10 @@ export class OperationRecovery {
   }
 
   /** Backward-compatible API for imported/legacy interruption records. */
-  async recordInterrupted({ operationId, principalId, toolId, inputHash, reason }) {
-    validateBinding({ operationId, principalId, toolId, inputHash });
+  async recordInterrupted({ operationId, principalId, toolId, inputHash, providerScope, reason }) {
+    validateBinding({ operationId, principalId, toolId, inputHash, ...(providerScope !== undefined ? { providerScope } : {}) });
     if (typeof reason !== "string" || reason.trim().length < 1 || reason.length > 500) throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "reason must contain 1-500 characters");
-    const payload = { operationId, principalId, toolId, inputHash, reason: reason.trim() };
+    const payload = { operationId, principalId, toolId, inputHash, ...(providerScope !== undefined ? { providerScope } : {}), reason: reason.trim() };
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const snapshot = await this.#snapshot();
       const existing = snapshot.get(operationId);
@@ -143,7 +148,7 @@ export class OperationRecovery {
     const records = await this.#snapshot();
     const pending = []; const resolved = []; const completed = []; const aborted = [];
     for (const [operationId, record] of records) {
-      const base = { operationId, principalId: record.binding.principalId, toolId: record.binding.toolId, inputHash: record.binding.inputHash, retryAutomatically: false };
+      const base = { operationId, principalId: record.binding.principalId, toolId: record.binding.toolId, inputHash: record.binding.inputHash, ...(record.binding.providerScope !== undefined ? { providerScope: record.binding.providerScope } : {}), retryAutomatically: false };
       if (record.status === "completed") completed.push(Object.freeze({ ...base, status: "completed" }));
       else if (record.status === "aborted_before_dispatch") aborted.push(Object.freeze({ ...base, status: "aborted_before_dispatch", reason: record.reason }));
       else if (record.resolution) resolved.push(Object.freeze({ ...base, status: "resolved", interrupted: record.reason ? Object.freeze({ ...record.binding, reason: record.reason }) : null, resolution: Object.freeze({ ...record.resolution }) }));
@@ -196,7 +201,7 @@ export class OperationRecovery {
       if (event.type === "operation.started") {
         validateBinding(p);
         if (record) throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "duplicate start or reused operation ID");
-        record = { binding: { operationId: p.operationId, principalId: p.principalId, toolId: p.toolId, inputHash: p.inputHash }, status: "started", reason: null, resolution: null };
+        record = { binding: { operationId: p.operationId, principalId: p.principalId, toolId: p.toolId, inputHash: p.inputHash, ...(p.providerScope !== undefined ? { providerScope: p.providerScope } : {}) }, status: "started", reason: null, resolution: null };
         records.set(p.operationId, record);
       } else if (event.type === "operation.completed") {
         validateBinding(p);
@@ -207,7 +212,7 @@ export class OperationRecovery {
         if (typeof p.reason !== "string" || p.reason.trim().length < 1 || p.reason.length > 500) throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "invalid interruption reason");
         if (!record) {
           // Compatibility with older ledgers where interruptions were recorded without an intent event.
-          record = { binding: { operationId: p.operationId, principalId: p.principalId, toolId: p.toolId, inputHash: p.inputHash }, status: "interrupted", reason: p.reason, resolution: null };
+          record = { binding: { operationId: p.operationId, principalId: p.principalId, toolId: p.toolId, inputHash: p.inputHash, ...(p.providerScope !== undefined ? { providerScope: p.providerScope } : {}) }, status: "interrupted", reason: p.reason, resolution: null };
           records.set(p.operationId, record);
         } else {
           if (record.status !== "started" || !sameBinding(record.binding, p)) throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "interruption must follow a matching start exactly once");
