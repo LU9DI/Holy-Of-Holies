@@ -67,6 +67,18 @@ test("detects modified payloads and incomplete final records", async (t) => {
   await assert.rejects(ledger.read(), /incomplete record/);
 });
 
+test("compare-and-append rejects stale writers", async (t) => {
+  const { path } = await fixture(t);
+  const ledger = new EventLedger(path);
+  const emptyHead = (await ledger.verify()).headHash;
+  await ledger.append({ type: "task.created", payload: { taskId: "t-1" }, expectedHeadHash: emptyHead });
+  await assert.rejects(
+    ledger.append({ type: "task.created", payload: { taskId: "t-2" }, expectedHeadHash: emptyHead }),
+    /head changed/,
+  );
+  assert.equal((await ledger.verify()).eventCount, 1);
+});
+
 test("rejects invalid event input", async (t) => {
   const { path } = await fixture(t);
   const ledger = new EventLedger(path);
