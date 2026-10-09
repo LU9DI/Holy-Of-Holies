@@ -169,3 +169,30 @@ test("rejects invalid adapter contracts", () => {
   assert.throws(() => registry.register(adapter("no.capabilities", { capabilities: [] })), /capabilities/);
   assert.throws(() => registry.register(adapter("no.validator", { validateInput: undefined })), /validateInput/);
 });
+
+
+test("optional adapters can be unregistered without affecting other providers", async () => {
+  const registry = new ProviderRegistry();
+  registry.register(adapter("optional.zion"));
+  registry.register(adapter("optional.other"));
+
+  assert.equal(registry.unregister("optional.zion"), true);
+  assert.equal(registry.unregister("optional.zion"), false);
+  assert.deepEqual(registry.list().map((provider) => provider.providerId), ["optional.other"]);
+  await assert.rejects(
+    registry.resolve({ providerId: "optional.zion", capability: "analysis.read" }),
+    (error) => error.code === "PROVIDER_NOT_REGISTERED",
+  );
+  assert.equal((await registry.resolve({
+    providerId: "optional.other",
+    capability: "analysis.read",
+  })).providerId, "optional.other");
+});
+
+test("unregister requires an explicit valid provider ID", () => {
+  const registry = new ProviderRegistry();
+  assert.throws(
+    () => registry.unregister(),
+    (error) => error.code === "INVALID_PROVIDER_REQUEST",
+  );
+});
