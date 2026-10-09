@@ -149,6 +149,11 @@ export class ProviderRegistry {
 
     await this.resolve({ providerId, capability });
     const entry = this.#providers.get(providerId);
+    // The adapter may have been unregistered while resolve() awaited its
+    // status probe. Re-check before dispatch instead of dereferencing stale state.
+    if (!entry || !entry.descriptor.capabilities.includes(capability)) {
+      throw new ProviderRegistryError("PROVIDER_NOT_REGISTERED", `provider is no longer registered: ${providerId}`);
+    }
     try {
       if (entry.adapter.validateInput(capability, input) !== true) {
         throw new ProviderRegistryError("PROVIDER_INPUT_INVALID", "provider input did not pass its declared validator");
