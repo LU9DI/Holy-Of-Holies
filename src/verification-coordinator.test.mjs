@@ -49,7 +49,9 @@ test("records runner evidence without storing raw stdout or stderr and requests 
   assert.deepEqual(events.map((event) => event.type), ["verification.started", "verification.completed"]);
   assert.equal("stdout" in events[1].payload, false);
   assert.equal("stderr" in events[1].payload, false);
-  assert.match(events[1].payload.attestation.signatureHash, /^[a-f0-9]{64}$/);
+  assert.match(events[1].payload.attestation.signature, /^[a-f0-9]{64}$/);
+  assert.equal(events[1].payload.attestation.resultHash, result.report.resultHash);
+  assert.equal(events[1].payload.attestation.schemaVersion, 1);
 });
 
 test("does not request an attestation for failed checks", async (t) => {
