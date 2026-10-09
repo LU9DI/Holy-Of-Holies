@@ -53,3 +53,9 @@ Cancellation and timeout signals are cooperative. They do **not** terminate host
 `VerificationRunner` executes only explicitly configured commands, with a fixed executable and argument list, no shell, policy authorization, timeouts, output limits, and hashed reports. A passing exit code is necessary but not sufficient: a trusted verification service must independently issue the signed attestation consumed by `VerificationEngine`.
 
 This runner is a constrained process launcher, **not a security sandbox**. It does not provide CPU/memory quotas, network isolation, filesystem isolation, syscall filtering, or a reliable way to kill descendants. Do not run untrusted project code directly on the host. Use a disposable, separately hardened worker/container with restricted credentials, filesystem, network and resource limits; persist signed evidence outside the worker.
+
+## Verification Coordination and Durable Evidence
+
+`VerificationCoordinator` links the allowlisted runner to an injected external attestation issuer and the hash-chained `EventLedger`. It records start, completion, runner failure, and attestation rejection events. The ledger stores command metadata and hashes, not raw stdout/stderr, reducing accidental persistence of secrets. A passing run is not treated as complete unless the external attestation issuer returns an attestation bound to the same task, project, and result hash.
+
+The issuer is an interface, not a built-in isolated service. The deployment must implement it as a separate trusted principal and configure it to sign only after independent verification. The local hash chain is tamper-evident, not immutable against a privileged attacker who can rewrite the entire ledger. Duplicate-ID checks are helpful for normal operation but are not a distributed uniqueness guarantee under multiple concurrent coordinators.
