@@ -2,7 +2,7 @@
 
 ## Scope
 
-This repository owns orchestration and policy contracts. It does not own the Zion network implementation and does not vendor the REA engine. Those systems are external providers connected through versioned adapters.
+This repository owns the standalone Holy of Holies (HH) orchestration and policy core. HH must operate without Zion, REA, or any other external system. It does not own the Zion network implementation and does not vendor the REA engine. Zion, REA, and any other systems are optional external integrations, connected only when the user explicitly configures a versioned adapter. Integration absence must not prevent core startup or core local workflows.
 
 ## Trust boundaries
 
@@ -22,7 +22,7 @@ This repository owns orchestration and policy contracts. It does not own the Zio
 - **Workspace manager**: canonical-root path checks, symlink rejection, bounded reads, atomic writes, file hashes and expected-version checks.
 - **Tool registry**: strict JSON contracts, input/output byte limits, cancellation, timeout requests, deny-by-default policy checks, and independently verified short-lived approval for side effects. Timeouts cannot terminate hostile in-process code; production still needs OS isolation.
 - **Container verification runner**: digest-pinned OCI image, no network, read-only source mount, dropped capabilities, non-root user, read-only container root and bounded CPU/memory/PIDs/output/time, and a canonical SHA-256 workspace manifest checked before and after execution. Successful workspace hashes are signed into schema-v3 completion evidence. `VerificationEngine` requires an injected `getWorkspaceDigest` callback for such evidence and fails closed if the callback is absent, errors, or returns a different digest.
-- **Provider adapters (next)**: REA, model providers and later Zion integration.
+- **Optional provider adapters**: model providers, REA, Zion, or user-selected systems. These are independent extensions, not a required roadmap dependency. The core must not auto-connect, share data, or grant permissions to an adapter without explicit user configuration.
 
 ## Lifecycle invariants
 
@@ -75,3 +75,14 @@ The coordinator records verification lifecycle events in the event ledger and pe
 
 
 The coordinator returns a `completionEvidence` envelope that can be supplied to the orchestrator's `verifying → completed` transition. Completion remains guarded by the separately configured `verifyCompletion` callback, which can validate the signed attestation using the verifier's key and trusted-verifier policy.
+
+
+## Independence and user-controlled interoperability
+
+- HH is a standalone project and must not be embedded under, governed by, or made dependent on Zion.
+- Users decide whether to integrate HH with Zion, REA, or any other compatible system. There is no preferred or mandatory integration.
+- The core must remain useful with zero adapters installed and no external network services configured.
+- Each adapter must be optional, versioned, capability-declared, least-privilege, and independently removable.
+- Connections, credentials, permissions, data export/sharing, and remote execution require explicit user configuration and authorization.
+- Removing or disabling an adapter must not destroy core task history, policies, workspaces, or verification evidence.
+- Tests should include a no-adapter configuration to guard against accidental coupling.
