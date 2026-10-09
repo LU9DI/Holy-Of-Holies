@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { EventLedger } from "./event-ledger.mjs";
 import { VerificationRunner } from "./verification-runner.mjs";
+import { ContainerVerificationRunner } from "./container-verification-runner.mjs";
 import { VerificationCoordinator } from "./verification-coordinator.mjs";
 import { generateKeyPairSync } from "node:crypto";
 import { VerificationEngine } from "./verification-engine.mjs";
@@ -155,4 +156,50 @@ test("rejects malformed Ed25519 signature lengths before persistence", async (t)
     verificationId: "verify-short-signature", taskId: "task-1", projectId: "project-1", commandId: "check", principalId: "ci",
   }), (error) => error.code === "INVALID_ATTESTATION");
   assert.ok((await ledger.read()).some((event) => event.type === "verification.invalid_attestation"));
+});
+
+test("container runner evidence flows through coordinator to public-key verifier", async (t) => {
+  const dir = await mkdtemp(path.join(tmpdir(), "hoh-container-e2e-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const runtime = path.join(dir, "fake-runtime.sh");
+  await writeFile(runtime, `#!/bin/sh
+if [ "$1" = "rm" ]; then exit 0; fi
+printf '%s\\n' "$@"
+`);
+  await chmod(runtime, 0o755);
+  const runner = new ContainerVerificationRunner({
+    workspaceRoot: dir,
+    runtime,
+    authorize: async () => ({ allowed: true }),
+    commands: [{
+      id: "check",
+      image: "registry.example/ci/node@sha256:" + "a".repeat(64),
+      executable: "/usr/bin/node",
+      args: ["--test"],
+      timeoutMs: 3000,
+      maxOutputBytes: 4096,
+      allowedExitCodes: [0],
+    }],
+  });
+  const ledger = new EventLedger(path.join(dir, "audit", "events.jsonl"));
+  const pair = generateKeyPairSync("ed25519");
+  const privateKey = pair.privateKey.export({ type: "pkcs8", format: "pem" });
+  const publicKey = pair.publicKey.export({ type: "spki", format: "pem" });
+  const clock = () => new Date("2026-10-09T12:00:00.000Z");
+  const signer = new VerificationAttestor({ privateKey, trustedVerifiers: ["ci:trusted"], clock });
+  const coordinator = new VerificationCoordinator({
+    runner, ledger, clock,
+    attest: (input) => signer.attest({ ...input, verifierId: "ci:trusted" }),
+  });
+  const result = await coordinator.execute({
+    verificationId: "verify-container-e2e", taskId: "task-1", projectId: "project-1", commandId: "check", principalId: "ci",
+  });
+  const verifier = new VerificationEngine({ publicKey, trustedVerifiers: ["ci:trusted"], clock });
+  assert.equal(result.report.outcome, "passed");
+  assert.equal(result.completionEvidence.attestation.signature.length, 128);
+  assert.equal(await verifier.verifyCompletion({
+    task: { taskId: "task-1", projectId: "project-1" },
+    evidence: result.completionEvidence,
+  }), true);
+  assert.equal(result.report.cleanupSucceeded, true);
 });
