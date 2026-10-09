@@ -19,7 +19,7 @@ This repository owns orchestration and policy contracts. It does not own the Zio
 - **Task orchestrator**: replays durable events, serializes local state changes, uses compare-and-append to detect stale writers, enforces policy checks, and requires resume verification.
 - **Event ledger**: append-only JSONL records with sequence numbers, SHA-256 hash chaining, fsync and lock-based writer coordination.
 - **Provider registry**: explicit provider selection, declared capabilities, status probing and policy authorization before invocation.
-- **Workspace manager (next)**: scoped file access, diff generation, checkpoints and safe restoration.
+- **Workspace manager**: canonical-root path checks, symlink rejection, bounded reads, atomic writes, file hashes and expected-version checks.
 - **Tool registry with schema enforcement (next)**: typed input/output schemas and operating-system permission boundaries.
 - **Evidence / audit hardening (next)**: secret redaction, signed provenance and external anchoring.
 - **Provider adapters (next)**: REA, model providers and later Zion integration.
@@ -55,4 +55,4 @@ This repository owns orchestration and policy contracts. It does not own the Zio
 
 ## Current limitations
 
-The initial modules are small pure JavaScript helpers. They are not a complete autonomous agent, distributed runtime, sandbox, durable database, cryptographic identity system, or production authorization boundary. Those properties must be implemented and independently tested before the platform claims them.
+The current modules provide orchestration primitives and local file operations, but they are not a complete autonomous agent, distributed runtime, hardened sandbox, transactional database, cryptographic identity system, or production authorization boundary. Workspace path checks do not eliminate all races against a hostile process running as the same OS user. Those properties must be implemented and independently tested before the platform claims them.
