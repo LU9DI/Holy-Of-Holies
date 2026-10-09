@@ -47,3 +47,8 @@ Report suspected vulnerabilities privately through GitHub's repository security 
 ## Explicitly not yet implemented
 
 The current core does not yet provide cryptographic user identity, signed policy bundles, a hardened sandbox, encrypted storage, a production secrets vault, a durable transactional database, remote audit anchoring, a complete tool registry, or an autonomous end-to-end engineering runtime. No production security certification is implied.
+
+
+## Independent verification boundary
+
+The verification engine accepts only short-lived signed attestations from configured trusted verifier IDs, bound to a task, project, outcome, and result hash. It does not execute tests or build artifacts itself. The attestation signing capability and key must remain in a separate trusted runner/service and must never be exposed to the planner, tool handlers, or model. The current reference implementation stores attestations in memory; restart-safe persistence and separate signing/verifying principals are production prerequisites.
