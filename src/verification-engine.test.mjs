@@ -74,11 +74,13 @@ test("verifies persisted Ed25519 attestations after verifier restart and rejects
 test("binds workspace digest to signed evidence and optional task revision", async () => {
   const digest = "c".repeat(64);
   const signed = attestor().attest(report({ verificationId: "verify-workspace", workspaceHash: digest, workspaceHashAfter: digest }));
-  const verifier = engine();
+  const verifier = engine({ getWorkspaceDigest: async () => digest });
   const workspaceEvidence = {
     ...evidence, verificationId: "verify-workspace", workspaceHash: digest, workspaceHashAfter: digest, attestation: signed,
   };
   assert.equal(await verifier.verifyCompletion({ task, evidence: workspaceEvidence }), true);
   assert.equal(await verifier.verifyCompletion({ task, evidence: { ...workspaceEvidence, workspaceHash: "d".repeat(64) } }), false);
   assert.equal(await verifier.verifyCompletion({ task: { ...task, workspaceHash: "d".repeat(64) }, evidence: workspaceEvidence }), false);
+  assert.equal(await engine().verifyCompletion({ task, evidence: workspaceEvidence }), false);
+  assert.equal(await engine({ getWorkspaceDigest: async () => "d".repeat(64) }).verifyCompletion({ task, evidence: workspaceEvidence }), false);
 });

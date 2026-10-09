@@ -43,8 +43,9 @@ export class VerificationEngine {
   #clock;
   #revoked = new Set();
   #revocationRegistry;
+  #getWorkspaceDigest;
 
-  constructor({ publicKey, trustedVerifiers, clock = () => new Date(), revocationRegistry } = {}) {
+  constructor({ publicKey, trustedVerifiers, clock = () => new Date(), revocationRegistry, getWorkspaceDigest } = {}) {
     try { this.#publicKey = createPublicKey(publicKey); }
     catch { throw new TypeError("publicKey must be a valid Ed25519 public key"); }
     if (this.#publicKey.asymmetricKeyType !== "ed25519") throw new TypeError("publicKey must be an Ed25519 public key");
@@ -59,6 +60,10 @@ export class VerificationEngine {
       throw new TypeError("revocationRegistry must implement isRevoked() and revoke()");
     }
     this.#revocationRegistry = revocationRegistry;
+    if (getWorkspaceDigest !== undefined && typeof getWorkspaceDigest !== "function") {
+      throw new TypeError("getWorkspaceDigest must be a function");
+    }
+    this.#getWorkspaceDigest = getWorkspaceDigest;
   }
 
   async verifyCompletion({ task, evidence } = {}) {
@@ -76,6 +81,13 @@ export class VerificationEngine {
         record.resultHash !== evidence.resultHash || !HASH.test(evidence.resultHash ?? "") ||
         record.workspaceHash !== evidence.workspaceHash || record.workspaceHashAfter !== evidence.workspaceHashAfter ||
         (record.workspaceHash !== undefined && task.workspaceHash !== undefined && task.workspaceHash !== record.workspaceHash)) return false;
+    if (record.workspaceHash !== undefined) {
+      if (!this.#getWorkspaceDigest) return false;
+      let currentWorkspaceHash;
+      try { currentWorkspaceHash = await this.#getWorkspaceDigest({ task, evidence }); }
+      catch { return false; }
+      if (currentWorkspaceHash !== record.workspaceHash) return false;
+    }
     const nowValue = this.#clock();
     const now = nowValue instanceof Date ? nowValue.getTime() : Date.parse(nowValue);
     if (!Number.isFinite(now) || Date.parse(record.issuedAt) > now + 30_000 || Date.parse(record.expiresAt) <= now) return false;

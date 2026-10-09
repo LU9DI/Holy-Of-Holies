@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { EventLedger } from "./event-ledger.mjs";
 import { VerificationRunner } from "./verification-runner.mjs";
-import { ContainerVerificationRunner } from "./container-verification-runner.mjs";
+import { ContainerVerificationRunner, computeWorkspaceDigest } from "./container-verification-runner.mjs";
 import { VerificationCoordinator } from "./verification-coordinator.mjs";
 import { generateKeyPairSync } from "node:crypto";
 import { VerificationEngine } from "./verification-engine.mjs";
@@ -16,7 +16,9 @@ async function fixture(t) {
   t.after(() => rm(dir, { recursive: true, force: true }));
   const script = path.join(dir, "check.mjs");
   await writeFile(script, 'process.stdout.write("ok");\n');
-  const ledger = new EventLedger(path.join(dir, "audit", "events.jsonl"));
+  const auditDir = await mkdtemp(path.join(tmpdir(), "hoh-container-e2e-audit-"));
+  t.after(() => rm(auditDir, { recursive: true, force: true }));
+  const ledger = new EventLedger(path.join(auditDir, "events.jsonl"));
   const runner = new VerificationRunner({
     workspaceRoot: dir,
     commands: [{ id: "check", executable: process.execPath, args: [script], timeoutMs: 3000, maxOutputBytes: 4096, allowedExitCodes: [0] }],
@@ -194,7 +196,7 @@ printf '%s\\n' "$@"
   const result = await coordinator.execute({
     verificationId: "verify-container-e2e", taskId: "task-1", projectId: "project-1", commandId: "check", principalId: "ci",
   });
-  const verifier = new VerificationEngine({ publicKey, trustedVerifiers: ["ci:trusted"], clock });
+  const verifier = new VerificationEngine({ publicKey, trustedVerifiers: ["ci:trusted"], clock, getWorkspaceDigest: async () => computeWorkspaceDigest(dir) });
   assert.equal(result.report.outcome, "passed");
   assert.equal(result.completionEvidence.attestation.signature.length, 128);
   assert.equal(await verifier.verifyCompletion({
@@ -206,6 +208,8 @@ printf '%s\\n' "$@"
   assert.equal(result.report.workspaceChanged, false);
   assert.equal(result.completionEvidence.workspaceHash, result.attestation.workspaceHash);
   assert.equal(result.completionEvidence.workspaceHashAfter, result.attestation.workspaceHashAfter);
+  await writeFile(runtime, (await readFile(runtime, "utf8")) + "\n# mutation\n");
+  assert.equal(await verifier.verifyCompletion({ task: { taskId: "task-1", projectId: "project-1" }, evidence: result.completionEvidence }), false);
 });
 
 test("rejects attestation with malformed or excessive validity window", async (t) => {

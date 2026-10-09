@@ -22,7 +22,11 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-async function workspaceDigest(root, { maxBytes, maxFiles }) {
+export async function computeWorkspaceDigest(root, { maxBytes = 512 * 1024 * 1024, maxFiles = 100000 } = {}) {
+  if (typeof root !== "string" || !root.trim() || !Number.isSafeInteger(maxBytes) || maxBytes < 1024 ||
+      !Number.isInteger(maxFiles) || maxFiles < 1) throw new TypeError("workspace digest limits are invalid");
+  root = await realpath(path.resolve(root));
+  if (!(await stat(root)).isDirectory()) throw new TypeError("workspace digest root must be a directory");
   const manifest = [];
   let totalBytes = 0;
   let fileCount = 0;
@@ -174,7 +178,7 @@ export class ContainerVerificationRunner {
     }
     let workspaceHash;
     try {
-      workspaceHash = await workspaceDigest(root, { maxBytes: this.#maxWorkspaceBytes, maxFiles: this.#maxWorkspaceFiles });
+      workspaceHash = await computeWorkspaceDigest(root, { maxBytes: this.#maxWorkspaceBytes, maxFiles: this.#maxWorkspaceFiles });
     } catch {
       throw new ContainerVerificationRunnerError("WORKSPACE_SNAPSHOT_INVALID", "workspace contains unsupported entries, changed while hashing, or exceeded snapshot limits");
     }
