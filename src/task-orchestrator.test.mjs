@@ -74,7 +74,10 @@ test("approval transition uses a distinct authorization action", async (t) => {
       return { allowed: true };
     },
   });
-  await orchestrator.create(taskInput("task-approved", { requiresApproval: true }), {
+  await orchestrator.create(taskInput("task-approved", {
+    requiresApproval: false,
+    permissions: { filesystem: "write", network: "none", execution: "none" },
+  }), {
     principalId: "user:owner",
   });
   await orchestrator.transition("task-approved", "planning", {
