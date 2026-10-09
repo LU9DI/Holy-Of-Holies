@@ -1,0 +1,14 @@
+{
+  "name": "holy-of-holies-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Security-first orchestration core for Holy of Holies",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/task-machine.mjs && node --check src/policy-engine.mjs && node --test"
+  }
+}
