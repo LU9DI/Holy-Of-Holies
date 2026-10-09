@@ -38,3 +38,5 @@ export { ContainerVerificationRunner, ContainerVerificationRunnerError, computeW
 export { OperationRecovery, OperationRecoveryError } from "./operation-recovery.mjs";
 
 export { createDurableToolRegistry } from "./durable-tool-registry.mjs";
+
+export { createIdempotencyKey } from "./idempotency-key.mjs";
