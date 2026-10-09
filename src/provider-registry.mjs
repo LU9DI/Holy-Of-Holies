@@ -66,6 +66,19 @@ export class ProviderRegistry {
     );
   }
 
+  /**
+   * Remove an explicitly configured adapter. This prevents future resolutions
+   * and invocations; calls already dispatched to adapter code are not forcibly
+   * terminated. Callers must cancel and await in-flight work before assuming a
+   * provider has fully quiesced.
+   */
+  unregister(providerId) {
+    if (!validProviderId(providerId)) {
+      throw new ProviderRegistryError("INVALID_PROVIDER_REQUEST", "providerId must be explicit");
+    }
+    return this.#providers.delete(providerId);
+  }
+
   async resolve(request = {}) {
     const { providerId, capability } = request ?? {};
     if (!validProviderId(providerId) || !nonEmpty(capability)) {
