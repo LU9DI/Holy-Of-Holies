@@ -72,3 +72,6 @@ The coordinator records verification lifecycle events in the event ledger and pe
 
 
 **Restart-safe attestation verification:** a complete signed attestation can be supplied with evidence and verified cryptographically after process restart, provided the verifier retains the correct key and trusted-verifier allowlist. This does not persist revocation state; production revocation must be durable and consulted on every verification.
+
+
+The coordinator returns a `completionEvidence` envelope that can be supplied to the orchestrator's `verifying → completed` transition. Completion remains guarded by the separately configured `verifyCompletion` callback, which can validate the signed attestation using the verifier's key and trusted-verifier policy.
