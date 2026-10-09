@@ -3,10 +3,11 @@ import { createHash } from "node:crypto";
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 
 export class ToolRegistryError extends Error {
-  constructor(code, message) {
+  constructor(code, message, details = {}) {
     super(message);
     this.name = "ToolRegistryError";
     this.code = code;
+    if (details && typeof details === "object") Object.assign(this, details);
   }
 }
 
@@ -292,11 +293,20 @@ export class ToolRegistry {
       }
       return cloneJson(output);
     } catch (error) {
-      if (error instanceof ToolRegistryError) throw error;
-      if (controller.signal.aborted && signal?.aborted) {
-        throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled");
+      // Once a handler has been dispatched, a side effect may have happened even
+      // if cancellation, timeout, output validation, or the handler itself failed.
+      // Surface that uncertainty so callers cannot mistake the failure for a safe retry.
+      const outcomeUnknown = !descriptor.readOnly;
+      if (error instanceof ToolRegistryError) {
+        if (outcomeUnknown && error.outcomeUnknown !== true) {
+          throw new ToolRegistryError(error.code, error.message, { outcomeUnknown: true });
+        }
+        throw error;
       }
-      throw new ToolRegistryError("TOOL_EXECUTION_FAILED", "tool execution failed; sensitive handler details are suppressed");
+      if (controller.signal.aborted && signal?.aborted) {
+        throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled", { outcomeUnknown });
+      }
+      throw new ToolRegistryError("TOOL_EXECUTION_FAILED", "tool execution failed; sensitive handler details are suppressed", { outcomeUnknown });
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", onAbort);
