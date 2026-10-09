@@ -164,7 +164,14 @@ export class VerificationCoordinator {
         },
       });
 
-      return Object.freeze({ report: Object.freeze(result), attestation });
+      const completionEvidence = attestation ? Object.freeze({
+        verificationId: attestation.verificationId,
+        verifierId: attestation.verifierId,
+        outcome: attestation.outcome,
+        resultHash: attestation.resultHash,
+        attestation,
+      }) : null;
+      return Object.freeze({ report: Object.freeze(result), attestation, completionEvidence });
     } finally {
       this.#inFlight.delete(verificationId);
     }
