@@ -26,6 +26,7 @@ function safeReport(report) {
     timedOut: report.timedOut,
     cancelled: report.cancelled,
     outputLimitExceeded: report.outputLimitExceeded,
+    ...(typeof report.cleanupSucceeded === "boolean" ? { cleanupSucceeded: report.cleanupSucceeded } : {}),
     ...(report.spawnError ? { spawnError: true } : {}),
     stdoutHash: report.stdoutHash,
     stderrHash: report.stderrHash,
