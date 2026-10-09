@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ContainerVerificationRunner, ContainerVerificationRunnerError } from "./container-verification-runner.mjs";
@@ -10,8 +10,11 @@ const allow = async () => ({ allowed: true });
 async function fixture(t, options = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hoh-container-runner-"));
   t.after(() => rm(root, { recursive: true, force: true }));
+  const runtime = path.join(root, "fake-runtime.cjs");
+  await writeFile(runtime, "#!/usr/bin/env node\\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\\n");
+  await chmod(runtime, 0o755);
   return new ContainerVerificationRunner({
-    workspaceRoot: root, runtime: process.execPath, authorize: allow,
+    workspaceRoot: root, runtime, authorize: allow,
     commands: [{
       id: "unit-tests", image, executable: "/usr/bin/node", args: ["--test"],
       timeoutMs: 3000, maxOutputBytes: 4096, allowedExitCodes: [0],
@@ -37,7 +40,8 @@ test("uses pinned images, read-only source, no network, and resource limits", as
   assert.ok(argv.some((arg) => arg.startsWith("--memory=")));
   assert.ok(argv.some((arg) => arg.startsWith("--pids-limit=")));
   assert.ok(argv.includes(image));
-  assert.ok(argv.includes("/workspace"));
+  assert.ok(argv.includes("--workdir=/workspace"));
+  assert.ok(argv.some((arg) => arg.includes("dst=/workspace,readonly")));
 });
 
 test("rejects unpinned images and invalid resource limits", async (t) => {
