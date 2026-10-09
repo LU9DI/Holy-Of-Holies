@@ -40,3 +40,5 @@ export { OperationRecovery, OperationRecoveryError } from "./operation-recovery.
 export { createDurableToolRegistry } from "./durable-tool-registry.mjs";
 
 export { createIdempotencyKey } from "./idempotency-key.mjs";
+
+export { reconcileProviderOperation, ProviderReconciliationError } from "./provider-reconciliation.mjs";
