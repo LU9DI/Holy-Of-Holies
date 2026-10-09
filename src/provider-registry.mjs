@@ -148,6 +148,9 @@ export class ProviderRegistry {
     }
 
     await this.resolve({ providerId, capability });
+    if (signal?.aborted) {
+      throw new ProviderRegistryError("PROVIDER_CALL_CANCELLED", "provider call was cancelled before dispatch");
+    }
     const entry = this.#providers.get(providerId);
     // The adapter may have been unregistered while resolve() awaited its
     // status probe. Re-check before dispatch instead of dereferencing stale state.
