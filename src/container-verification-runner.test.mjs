@@ -70,7 +70,10 @@ test("fails closed on runtime timeout and performs container cleanup", async (t)
   const root = await mkdtemp(path.join(os.tmpdir(), "hoh-container-timeout-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const runtime = path.join(root, "fake-runtime.cjs");
-  await writeFile(runtime, "#!/bin/sh\\nif [ \"$1\" = \"rm\" ]; then exit 0; fi\\nexec /bin/sleep 5\\n");
+  await writeFile(runtime, `#!/bin/sh
+if [ "$1" = "rm" ]; then exit 0; fi
+exec /bin/sleep 5
+`);
   await chmod(runtime, 0o755);
   const runner = new ContainerVerificationRunner({
     workspaceRoot: root, runtime, authorize: allow,
@@ -86,7 +89,10 @@ test("fails closed when container output exceeds the configured budget", async (
   const root = await mkdtemp(path.join(os.tmpdir(), "hoh-container-output-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const runtime = path.join(root, "fake-runtime.cjs");
-  await writeFile(runtime, "#!/bin/sh\\nif [ \"$1\" = \"rm\" ]; then exit 0; fi\\nexec /usr/bin/yes x\\n");
+  await writeFile(runtime, `#!/bin/sh
+if [ "$1" = "rm" ]; then exit 0; fi
+exec /usr/bin/yes x
+`);
   await chmod(runtime, 0o755);
   const runner = new ContainerVerificationRunner({
     workspaceRoot: root, runtime, authorize: allow,
