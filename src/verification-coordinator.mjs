@@ -197,11 +197,13 @@ export class VerificationCoordinator {
         }
         const issuedMs = Date.parse(attestation?.issuedAt ?? "");
         const expiresMs = Date.parse(attestation?.expiresAt ?? "");
+        const nowMs = this.#clock().getTime();
         if (!attestation || attestation.verificationId !== verificationId ||
             attestation.taskId !== taskId || attestation.projectId !== projectId ||
             attestation.outcome !== "passed" || attestation.schemaVersion !== 3 || attestation.resultHash !== report.resultHash ||
             !validId(attestation.verifierId) || !SIGNATURE.test(attestation.signature ?? "") ||
-            !Number.isFinite(issuedMs) || !Number.isFinite(expiresMs) || expiresMs <= issuedMs ||
+            !Number.isFinite(issuedMs) || !Number.isFinite(expiresMs) || !Number.isFinite(nowMs) ||
+            issuedMs > nowMs || expiresMs <= nowMs || expiresMs <= issuedMs ||
             expiresMs - issuedMs > MAX_ATTESTATION_TTL_MS ||
             (typeof report.workspaceHash === "string" &&
               (attestation.workspaceHash !== report.workspaceHash || attestation.workspaceHashAfter !== report.workspaceHashAfter)) ||
