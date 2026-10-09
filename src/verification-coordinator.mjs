@@ -1,6 +1,7 @@
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 const HASH = /^[a-f0-9]{64}$/;
 const SIGNATURE = /^[a-f0-9]{128}$/;
+const MAX_ATTESTATION_TTL_MS = 10 * 60 * 1000;
 
 export class VerificationCoordinatorError extends Error {
   constructor(code, message) {
@@ -145,10 +146,14 @@ export class VerificationCoordinator {
           });
           throw new VerificationCoordinatorError("ATTESTATION_FAILED", "trusted attestation service did not attest the result");
         }
+        const issuedMs = Date.parse(attestation?.issuedAt ?? "");
+        const expiresMs = Date.parse(attestation?.expiresAt ?? "");
         if (!attestation || attestation.verificationId !== verificationId ||
             attestation.taskId !== taskId || attestation.projectId !== projectId ||
             attestation.outcome !== "passed" || attestation.schemaVersion !== 2 || attestation.resultHash !== report.resultHash ||
-            !validId(attestation.verifierId) || !SIGNATURE.test(attestation.signature ?? "")) {
+            !validId(attestation.verifierId) || !SIGNATURE.test(attestation.signature ?? "") ||
+            !Number.isFinite(issuedMs) || !Number.isFinite(expiresMs) || expiresMs <= issuedMs ||
+            expiresMs - issuedMs > MAX_ATTESTATION_TTL_MS) {
           await this.#ledger.append({
             type: "verification.invalid_attestation",
             at: this.#clock().toISOString(),

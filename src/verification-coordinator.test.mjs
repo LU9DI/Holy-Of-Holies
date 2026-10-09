@@ -203,3 +203,19 @@ printf '%s\\n' "$@"
   }), true);
   assert.equal(result.report.cleanupSucceeded, true);
 });
+
+test("rejects attestation with malformed or excessive validity window", async (t) => {
+  const { ledger, runner } = await fixture(t);
+  const coordinator = new VerificationCoordinator({
+    runner, ledger,
+    attest: async (input) => ({
+      ...issuer({ ...input, verifierId: "ci:trusted" }),
+      issuedAt: "not-a-date",
+      expiresAt: "2026-10-09T12:20:00.000Z",
+    }),
+    clock: () => new Date("2026-10-09T12:00:00.000Z"),
+  });
+  await assert.rejects(coordinator.execute({
+    verificationId: "verify-invalid-window", taskId: "task-1", projectId: "project-1", commandId: "check", principalId: "ci",
+  }), (error) => error.code === "INVALID_ATTESTATION");
+});
