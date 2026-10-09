@@ -23,6 +23,7 @@ async function fixture(t) {
 
 function issuer({ verificationId, taskId, projectId, verifierId, outcome, resultHash }) {
   return {
+    schemaVersion: 1,
     verificationId, taskId, projectId, verifierId, outcome, resultHash,
     issuedAt: "2026-10-09T12:00:00.000Z",
     expiresAt: "2026-10-09T12:05:00.000Z",
