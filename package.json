@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/task-machine.mjs && node --check src/policy-engine.mjs && node --check src/tool-registry.mjs && node --check src/operation-recovery.mjs && node --check src/verification-engine.mjs && node --check src/verification-attestor.mjs && node --check src/verification-runner.mjs && node --check src/verification-coordinator.mjs && node --check src/revocation-registry.mjs && node --check src/container-verification-runner.mjs && npm run license:check && npm run workflows:check && node --test",
+    "check": "node --check src/task-machine.mjs && node --check src/policy-engine.mjs && node --check src/tool-registry.mjs && node --check src/operation-recovery.mjs && node --check src/provider-reconciliation.mjs && node --check src/verification-engine.mjs && node --check src/verification-attestor.mjs && node --check src/verification-runner.mjs && node --check src/verification-coordinator.mjs && node --check src/revocation-registry.mjs && node --check src/container-verification-runner.mjs && npm run license:check && npm run workflows:check && node --test",
     "license:check": "node scripts/check-license.mjs",
     "workflows:check": "node scripts/check-workflows.mjs"
   },
