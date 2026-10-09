@@ -112,7 +112,15 @@ export class TaskOrchestrator {
         throw new TaskOrchestratorError("INVALID_PRINCIPAL", "principalId is required");
       }
 
-      const task = createTask(input, { now: this.#clock() });
+      let task = createTask(input, { now: this.#clock() });
+      const requiresApproval =
+        task.requiresApproval ||
+        task.permissions.filesystem === "write" ||
+        task.permissions.network !== "none" ||
+        task.permissions.execution !== "none";
+      if (requiresApproval && !task.requiresApproval) {
+        task = createTask({ ...snapshotInput(task), requiresApproval: true }, { now: task.createdAt });
+      }
       if (this.#tasks.has(task.taskId)) {
         throw new TaskOrchestratorError("TASK_ALREADY_EXISTS", `task already exists: ${task.taskId}`);
       }
