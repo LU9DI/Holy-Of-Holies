@@ -89,3 +89,22 @@ For successful runs, `completionEvidence` is returned in the exact envelope expe
 
 
 The recovery API also provides `inspect()`, which reconstructs pending and resolved operations from the ledger after process restart. It fails closed on semantic inconsistencies such as duplicate interruption/resolution records, malformed operation events, or a resolution without a corresponding interruption. This is a read-only reconstruction; it does not dispatch tools or authorize retries.
+
+
+### Downstream idempotency for side effects
+
+A durable `operationId` prevents the core from blindly dispatching the same journaled operation again, but it cannot prove whether a remote provider completed an action when the process crashes or completion recording fails. If a downstream provider supports idempotency keys, derive a stable key scoped to the provider account and operation:
+
+```js
+import { createIdempotencyKey } from "holy-of-holies-core";
+
+const idempotencyKey = createIdempotencyKey({
+  providerScope: "payments:merchant-42",
+  operationId,
+});
+
+// Pass idempotencyKey to the provider's documented idempotency field.
+// On an uncertain outcome, query provider status before resolving recovery.
+```
+
+Use the same provider scope and operation ID for every retry of the same logical action; use a distinct operation ID for a genuinely new action. Keep provider scope stable and specific to the tenant/account boundary. The helper returns a deterministic SHA-256 key; it does not call the provider, persist status, or guarantee exactly-once effects. Respect the provider's key retention window and semantics. If the provider offers neither idempotent requests nor reliable status lookup, do not automatically retry an uncertain side effect: leave it unresolved for independent reconciliation.
