@@ -66,3 +66,22 @@ test("rejects attestation when clock moves past expiry", async () => {
   now = new Date("2026-10-09T12:06:00Z");
   assert.equal(await verifier.verifyCompletion({ task, evidence }), false);
 });
+
+test("verifies a persisted signed attestation after verifier restart", async () => {
+  const first = engine();
+  const signed = first.attest(report());
+  const restarted = engine();
+  assert.equal(await restarted.verifyCompletion({
+    task,
+    evidence: { ...evidence, attestation: signed },
+  }), true);
+  assert.equal(await restarted.verifyCompletion({
+    task: { ...task, projectId: "other-project" },
+    evidence: { ...evidence, attestation: signed },
+  }), false);
+  const forged = { ...signed, resultHash: "b".repeat(64) };
+  assert.equal(await restarted.verifyCompletion({
+    task,
+    evidence: { ...evidence, attestation: forged, resultHash: forged.resultHash },
+  }), false);
+});
