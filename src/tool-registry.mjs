@@ -287,6 +287,19 @@ export class ToolRegistry {
         }
       } catch (error) {
         if (error instanceof ToolRegistryError && error.code === "OPERATION_ALREADY_CLAIMED") throw error;
+        // Preserve known durable identity conflicts as actionable, sanitized errors.
+        // In either case, fail closed: never redispatch an operation whose durable
+        // identity is already bound or whose lifecycle has advanced.
+        if (error?.code === "OPERATION_ID_CONFLICT") {
+          throw new ToolRegistryError("OPERATION_ID_CONFLICT", "operation ID is already bound to different durable operation data", {
+            operationId, outcomeUnknown: true,
+          });
+        }
+        if (error?.code === "OPERATION_ALREADY_TERMINAL") {
+          throw new ToolRegistryError("OPERATION_ALREADY_CLAIMED", "operation ID has already advanced in durable recovery; duplicate dispatch is denied", {
+            operationId, outcomeUnknown: true,
+          });
+        }
         throw new ToolRegistryError("OPERATION_JOURNAL_BEGIN_FAILED", "side-effect dispatch denied because durable operation intent could not be recorded");
       }
       if (signal?.aborted) {
