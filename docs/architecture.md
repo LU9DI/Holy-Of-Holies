@@ -69,3 +69,6 @@ The current modules provide orchestration primitives and local file operations, 
 ## Verification coordination and audit trail
 
 The coordinator records verification lifecycle events in the event ledger and persists only report metadata and output hashes, not raw captured output. It delegates signing to an injected attestation issuer and rejects attestations whose task, project, verification ID, outcome, or result hash do not match the runner report. This is integration glue, not a trusted signing service: issuer isolation, durable key management, independently selected test plans, and a hardened worker remain deployment responsibilities.
+
+
+**Restart-safe attestation verification:** a complete signed attestation can be supplied with evidence and verified cryptographically after process restart, provided the verifier retains the correct key and trusted-verifier allowlist. This does not persist revocation state; production revocation must be durable and consulted on every verification.
