@@ -14,7 +14,7 @@ This repository is the **Holy of Holies core**, not the Zion implementation. Zio
 
 ## Initial implementation
 
-The first milestone establishes a small, dependency-free task state machine and policy primitives that can be tested independently. It is a foundation, not a claim that the full platform, distributed networking, sandboxing, or autonomous engineering workflow is complete.
+The current foundation includes a task state machine, fail-closed policy evaluator, tamper-evident JSONL event ledger, durable task orchestrator, and an explicitly selected provider registry. Automated tests and a GitHub Actions workflow exercise these modules. This is a foundation, not a claim that the full platform, distributed networking, sandboxing, or autonomous engineering workflow is complete.
 
 ## Requirements
 
@@ -39,4 +39,4 @@ npm test
 
 ## Status
 
-Early core foundation. APIs are expected to evolve before a stable release. Licensing and contributor policy must be finalized before a formal release.
+Early core foundation. The task and provider APIs are expected to evolve before a stable release. The repository is public, but a formal open-source release must not be declared until the project license, contribution policy and release verification are finalized.
