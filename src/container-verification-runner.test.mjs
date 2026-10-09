@@ -33,6 +33,9 @@ test("uses pinned images, read-only source, no network, and resource limits", as
   const result = await runner.run({ taskId: "task-1", projectId: "project-1", commandId: "unit-tests", principalId: "ci" });
   assert.equal(result.outcome, "passed", JSON.stringify({ exitCode: result.exitCode, spawnError: result.spawnError, cleanupSucceeded: result.cleanupSucceeded, stderr: result.stderr }));
   assert.equal(result.cleanupSucceeded, true);
+  assert.match(result.workspaceHash, /^[a-f0-9]{64}$/);
+  assert.equal(result.workspaceHashAfter, result.workspaceHash);
+  assert.equal(result.workspaceChanged, false);
   const argv = result.stdout.trim().split("\n");
   assert.ok(argv.includes("--network=none"));
   assert.ok(argv.includes("--read-only"));
@@ -104,4 +107,24 @@ exec /usr/bin/yes x
   assert.equal(result.outputLimitExceeded, true);
   assert.equal(result.cleanupSucceeded, true);
   assert.ok(result.stdoutBytes + result.stderrBytes <= 1024);
+});
+
+test("fails verification when the workspace changes during execution", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hoh-container-workspace-change-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runtime = path.join(root, "fake-runtime.sh");
+  await writeFile(runtime, `#!/bin/sh
+if [ "$1" = "rm" ]; then exit 0; fi
+printf changed > "$FAKE_WORKSPACE_ROOT/mutated.txt"
+printf '%s\\n' "$@"
+`);
+  await chmod(runtime, 0o755);
+  const runner = new ContainerVerificationRunner({
+    workspaceRoot: root, runtime, authorize: allow, runtimeEnvironment: { FAKE_WORKSPACE_ROOT: root },
+    commands: [{ id: "check", image, executable: "/usr/bin/node", args: [], timeoutMs: 3000, maxOutputBytes: 4096, allowedExitCodes: [0] }],
+  });
+  const result = await runner.run({ taskId: "t", projectId: "p", commandId: "check", principalId: "ci" });
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.workspaceChanged, true);
+  assert.notEqual(result.workspaceHashAfter, result.workspaceHash);
 });

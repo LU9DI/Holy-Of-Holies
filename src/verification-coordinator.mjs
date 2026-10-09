@@ -28,6 +28,9 @@ function safeReport(report) {
     cancelled: report.cancelled,
     outputLimitExceeded: report.outputLimitExceeded,
     ...(typeof report.cleanupSucceeded === "boolean" ? { cleanupSucceeded: report.cleanupSucceeded } : {}),
+    ...(HASH.test(report.workspaceHash ?? "") ? { workspaceHash: report.workspaceHash } : {}),
+    ...(HASH.test(report.workspaceHashAfter ?? "") ? { workspaceHashAfter: report.workspaceHashAfter } : {}),
+    ...(typeof report.workspaceChanged === "boolean" ? { workspaceChanged: report.workspaceChanged } : {}),
     ...(report.spawnError ? { spawnError: true } : {}),
     stdoutHash: report.stdoutHash,
     stderrHash: report.stderrHash,
@@ -117,7 +120,10 @@ export class VerificationCoordinator {
       if (!report || report.taskId !== taskId || report.projectId !== projectId ||
           report.commandId !== commandId || !["passed", "failed"].includes(report.outcome) ||
           !HASH.test(report.resultHash ?? "") || !HASH.test(report.stdoutHash ?? "") ||
-          !HASH.test(report.stderrHash ?? "")) {
+          !HASH.test(report.stderrHash ?? "") ||
+          (report.workspaceHash !== undefined && !HASH.test(report.workspaceHash ?? "")) ||
+          (report.workspaceHashAfter !== undefined && report.workspaceHashAfter !== null && !HASH.test(report.workspaceHashAfter)) ||
+          (report.workspaceChanged !== undefined && typeof report.workspaceChanged !== "boolean")) {
         await this.#ledger.append({
           type: "verification.invalid_report",
           at: this.#clock().toISOString(),

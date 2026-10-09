@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
+import { createReadStream } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { realpath, stat } from "node:fs/promises";
+import { realpath, stat, readdir, lstat } from "node:fs/promises";
 import path from "node:path";
 
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
@@ -19,6 +20,41 @@ export class ContainerVerificationRunnerError extends Error {
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+async function workspaceDigest(root, { maxBytes, maxFiles }) {
+  const manifest = [];
+  let totalBytes = 0;
+  let fileCount = 0;
+  async function walk(directory, relative = "", depth = 0) {
+    if (depth > 64) throw new Error("workspace nesting limit exceeded");
+    const names = (await readdir(directory)).sort();
+    for (const name of names) {
+      const absolute = path.join(directory, name);
+      const rel = relative ? `${relative}/${name}` : name;
+      const before = await lstat(absolute);
+      fileCount += 1;
+      if (fileCount > maxFiles) throw new Error("workspace file-count limit exceeded");
+      if (before.isSymbolicLink()) throw new Error("workspace contains a symbolic link");
+      if (before.isDirectory()) {
+        manifest.push({ path: rel, type: "directory", mode: before.mode & 0o777 });
+        await walk(absolute, rel, depth + 1);
+        continue;
+      }
+      if (!before.isFile()) throw new Error("workspace contains a non-regular file");
+      totalBytes += before.size;
+      if (totalBytes > maxBytes) throw new Error("workspace byte limit exceeded");
+      const hash = createHash("sha256");
+      for await (const chunk of createReadStream(absolute)) hash.update(chunk);
+      const after = await lstat(absolute);
+      if (!after.isFile() || after.size !== before.size || after.mtimeMs !== before.mtimeMs || after.ino !== before.ino) {
+        throw new Error("workspace changed while hashing");
+      }
+      manifest.push({ path: rel, type: "file", mode: before.mode & 0o777, size: before.size, hash: hash.digest("hex") });
+    }
+  }
+  await walk(root);
+  return sha256(JSON.stringify(manifest));
 }
 function validEnv(value) {
   return value && typeof value === "object" && !Array.isArray(value) &&
@@ -62,10 +98,13 @@ export class ContainerVerificationRunner {
   #memory;
   #cpus;
   #pids;
+  #maxWorkspaceBytes;
+  #maxWorkspaceFiles;
 
   constructor({
     workspaceRoot, runtime, commands, authorize, clock = () => new Date(),
     runtimeEnvironment = {}, memoryLimit = "512m", cpuLimit = 1, pidsLimit = 64,
+    maxWorkspaceBytes = 512 * 1024 * 1024, maxWorkspaceFiles = 100000,
   } = {}) {
     if (typeof workspaceRoot !== "string" || !workspaceRoot.trim() ||
         typeof runtime !== "string" || !path.isAbsolute(runtime) ||
@@ -79,7 +118,9 @@ export class ContainerVerificationRunner {
     const memoryMatch = typeof memoryLimit === "string" ? /^([1-9][0-9]*)(m|g)$/.exec(memoryLimit) : null;
     if (!memoryMatch || (memoryMatch[2] === "m" ? Number(memoryMatch[1]) > 16384 : Number(memoryMatch[1]) > 16) ||
         typeof cpuLimit !== "number" || !Number.isFinite(cpuLimit) || cpuLimit < 0.1 || cpuLimit > 8 ||
-        !Number.isInteger(pidsLimit) || pidsLimit < 16 || pidsLimit > 512) {
+        !Number.isInteger(pidsLimit) || pidsLimit < 16 || pidsLimit > 512 ||
+        !Number.isSafeInteger(maxWorkspaceBytes) || maxWorkspaceBytes < 1024 || maxWorkspaceBytes > 4 * 1024 * 1024 * 1024 ||
+        !Number.isInteger(maxWorkspaceFiles) || maxWorkspaceFiles < 1 || maxWorkspaceFiles > 1000000) {
       throw new TypeError("container resource limits are invalid");
     }
     this.#root = path.resolve(workspaceRoot);
@@ -96,6 +137,8 @@ export class ContainerVerificationRunner {
     this.#memory = memoryLimit;
     this.#cpus = cpuLimit;
     this.#pids = pidsLimit;
+    this.#maxWorkspaceBytes = maxWorkspaceBytes;
+    this.#maxWorkspaceFiles = maxWorkspaceFiles;
   }
 
   async run({ taskId, projectId, commandId, principalId, signal } = {}) {
@@ -128,6 +171,12 @@ export class ContainerVerificationRunner {
       if (!(await stat(runtime)).isFile()) throw new Error("runtime is not a file");
     } catch {
       throw new ContainerVerificationRunnerError("INVALID_EXECUTION_PATH", "workspace or container runtime path is invalid");
+    }
+    let workspaceHash;
+    try {
+      workspaceHash = await workspaceDigest(root, { maxBytes: this.#maxWorkspaceBytes, maxFiles: this.#maxWorkspaceFiles });
+    } catch {
+      throw new ContainerVerificationRunnerError("WORKSPACE_SNAPSHOT_INVALID", "workspace contains unsupported entries, changed while hashing, or exceeded snapshot limits");
     }
 
     const startedAt = new Date(this.#clock()).toISOString();
@@ -243,12 +292,20 @@ export class ContainerVerificationRunner {
     const finishedAt = new Date(this.#clock()).toISOString();
     const stdoutHash = sha256(result.stdout);
     const stderrHash = sha256(result.stderr);
-    const outcome = !result.timedOut && !result.cancelled && !result.overflow &&
-      !result.spawnError && result.cleanupSucceeded && command.allowedExitCodes.includes(result.exitCode) ? "passed" : "failed";
+    let workspaceHashAfter = null;
+    let workspaceChanged = true;
+    try {
+      workspaceHashAfter = await workspaceDigest(root, { maxBytes: this.#maxWorkspaceBytes, maxFiles: this.#maxWorkspaceFiles });
+      workspaceChanged = workspaceHashAfter !== workspaceHash;
+    } catch {
+      workspaceChanged = true;
+    }
+    const outcome = !result.timedOut && !result.cancelled && !result.overflow && !result.spawnError &&
+      result.cleanupSucceeded && !workspaceChanged && command.allowedExitCodes.includes(result.exitCode) ? "passed" : "failed";
     const reportBody = {
       taskId, projectId, commandId, startedAt, finishedAt, exitCode: result.exitCode, outcome,
       timedOut: result.timedOut, cancelled: result.cancelled, outputLimitExceeded: result.overflow,
-      cleanupSucceeded: result.cleanupSucceeded, stdoutHash, stderrHash,
+      cleanupSucceeded: result.cleanupSucceeded, workspaceHash, workspaceHashAfter, workspaceChanged, stdoutHash, stderrHash,
       stdoutBytes: result.stdout.length, stderrBytes: result.stderr.length,
     };
     const report = {

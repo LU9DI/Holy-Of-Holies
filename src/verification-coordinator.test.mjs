@@ -202,6 +202,8 @@ printf '%s\\n' "$@"
     evidence: result.completionEvidence,
   }), true);
   assert.equal(result.report.cleanupSucceeded, true);
+  assert.match(result.report.workspaceHash, /^[a-f0-9]{64}$/);
+  assert.equal(result.report.workspaceChanged, false);
 });
 
 test("rejects attestation with malformed or excessive validity window", async (t) => {
