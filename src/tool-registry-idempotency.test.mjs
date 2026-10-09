@@ -15,12 +15,6 @@ const approval = {
   expiresAt: "2026-10-09T12:10:00.000Z",
 };
 const now = () => new Date("2026-10-09T12:00:00.000Z");
-const journal = () => ({
-  begin: async () => ({ duplicate: false }),
-  complete: async () => {},
-  interrupt: async () => {},
-});
-
 function makeRegistry({ providerScope = "payments:merchant-42", readOnly = false, handler, operationJournal } = {}) {
   const registry = new ToolRegistry({
     authorize: async () => ({ allowed: true }),
