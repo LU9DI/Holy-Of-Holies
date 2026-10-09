@@ -34,7 +34,8 @@ function descriptor(input) {
       !Number.isInteger(input.maxOutputBytes) || input.maxOutputBytes < 1024 || input.maxOutputBytes > MAX_OUTPUT_BYTES ||
       !Array.isArray(input.allowedExitCodes) || input.allowedExitCodes.length === 0 ||
       input.allowedExitCodes.some((code) => !Number.isInteger(code) || code < 0 || code > 255) ||
-      !validEnv(input.environment ?? {})) {
+      !validEnv(input.environment ?? {}) ||
+      ["HOME", "PATH", "LANG", "LC_ALL"].some((key) => Object.hasOwn(input.environment ?? {}, key))) {
     throw new ContainerVerificationRunnerError("INVALID_COMMAND_DESCRIPTOR", "container verification descriptor is invalid");
   }
   return Object.freeze({
@@ -72,8 +73,11 @@ export class ContainerVerificationRunner {
       throw new TypeError("workspaceRoot, an absolute container runtime path, and command allowlist are required");
     }
     if (typeof authorize !== "function") throw new TypeError("an authorization callback is required");
-    if (!validEnv(runtimeEnvironment)) throw new TypeError("runtimeEnvironment must be an explicit string map");
-    if (typeof memoryLimit !== "string" || !/^[1-9][0-9]*(m|g)$/.test(memoryLimit) ||
+    if (!validEnv(runtimeEnvironment) || ["PATH", "LANG", "LC_ALL"].some((key) => Object.hasOwn(runtimeEnvironment, key))) {
+      throw new TypeError("runtimeEnvironment must be explicit and cannot override PATH, LANG, or LC_ALL");
+    }
+    const memoryMatch = typeof memoryLimit === "string" ? /^([1-9][0-9]*)(m|g)$/.exec(memoryLimit) : null;
+    if (!memoryMatch || (memoryMatch[2] === "m" ? Number(memoryMatch[1]) > 16384 : Number(memoryMatch[1]) > 16) ||
         typeof cpuLimit !== "number" || !Number.isFinite(cpuLimit) || cpuLimit < 0.1 || cpuLimit > 8 ||
         !Number.isInteger(pidsLimit) || pidsLimit < 16 || pidsLimit > 512) {
       throw new TypeError("container resource limits are invalid");
@@ -119,7 +123,7 @@ export class ContainerVerificationRunner {
     let runtime;
     try {
       root = await realpath(this.#root);
-      if (!(await stat(root)).isDirectory()) throw new Error("workspace is not a directory");
+      if (!(await stat(root)).isDirectory() || root.includes(",")) throw new Error("workspace path is not safely mountable");
       runtime = await realpath(this.#runtime);
       if (!(await stat(runtime)).isFile()) throw new Error("runtime is not a file");
     } catch {

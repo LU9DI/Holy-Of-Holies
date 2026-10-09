@@ -65,3 +65,36 @@ test("fails closed when authorization is denied", async (t) => {
   await assert.rejects(runner.run({ taskId: "t", projectId: "p", commandId: "unit-tests", principalId: "u" }),
     (error) => error.code === "POLICY_DENIED");
 });
+
+test("fails closed on runtime timeout and performs container cleanup", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hoh-container-timeout-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runtime = path.join(root, "fake-runtime.cjs");
+  await writeFile(runtime, "#!/bin/sh\\nif [ \"$1\" = \"rm\" ]; then exit 0; fi\\nexec /bin/sleep 5\\n");
+  await chmod(runtime, 0o755);
+  const runner = new ContainerVerificationRunner({
+    workspaceRoot: root, runtime, authorize: allow,
+    commands: [{ id: "slow", image, executable: "/usr/bin/node", args: [], timeoutMs: 100, maxOutputBytes: 1024, allowedExitCodes: [0] }],
+  });
+  const result = await runner.run({ taskId: "t", projectId: "p", commandId: "slow", principalId: "ci" });
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.timedOut, true);
+  assert.equal(result.cleanupSucceeded, true);
+});
+
+test("fails closed when container output exceeds the configured budget", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hoh-container-output-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runtime = path.join(root, "fake-runtime.cjs");
+  await writeFile(runtime, "#!/bin/sh\\nif [ \"$1\" = \"rm\" ]; then exit 0; fi\\nexec /usr/bin/yes x\\n");
+  await chmod(runtime, 0o755);
+  const runner = new ContainerVerificationRunner({
+    workspaceRoot: root, runtime, authorize: allow,
+    commands: [{ id: "noisy", image, executable: "/usr/bin/node", args: [], timeoutMs: 3000, maxOutputBytes: 1024, allowedExitCodes: [0] }],
+  });
+  const result = await runner.run({ taskId: "t", projectId: "p", commandId: "noisy", principalId: "ci" });
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.outputLimitExceeded, true);
+  assert.equal(result.cleanupSucceeded, true);
+  assert.ok(result.stdoutBytes + result.stderrBytes <= 1024);
+});
