@@ -61,6 +61,8 @@ export class OperationRecovery {
     }
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
+      // Refuse mutation if any recovery history is already inconsistent.
+      await this.inspect();
       const events = await this.#ledger.read();
       const operationEvents = events.filter((event) => event.payload?.operationId === operationId &&
         ["operation.interrupted", "operation.resolved"].includes(event.type));
@@ -114,6 +116,12 @@ export class OperationRecovery {
         current.interrupted = payload;
       } else {
         requireId(payload.resolvedBy, "resolvedBy");
+        if (!current.interrupted || current.resolution) {
+          throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "resolution must follow exactly one interruption record");
+        }
+        if (payload.resolvedBy === current.interrupted.principalId) {
+          throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "resolution violates independent-review requirement");
+        }
         if (!RESOLUTIONS.has(payload.resolution) ||
             typeof payload.evidenceRef !== "string" || payload.evidenceRef.trim().length < 1 ||
             payload.evidenceRef.length > 500 || current.resolution) {
@@ -146,17 +154,9 @@ export class OperationRecovery {
 
   async get(operationId) {
     requireId(operationId, "operationId");
-    const events = await this.#ledger.read();
-    const interrupted = events.find((event) => event.type === "operation.interrupted" && event.payload.operationId === operationId);
-    if (!interrupted) return null;
-    const resolved = events.find((event) => event.type === "operation.resolved" && event.payload.operationId === operationId);
-    return Object.freeze({
-      operationId,
-      status: resolved ? "resolved" : "unknown_after_interruption",
-      interrupted: Object.freeze({ ...interrupted.payload }),
-      ...(resolved ? { resolution: Object.freeze({ ...resolved.payload }) } : {}),
-      retryAutomatically: false,
-    });
+    const snapshot = await this.inspect();
+    const record = [...snapshot.pending, ...snapshot.resolved].find((item) => item.operationId === operationId);
+    return record ?? null;
   }
 
   async #appendUnique(type, payload) {
