@@ -58,14 +58,57 @@ test("denies closed if policy is missing, errors, or rejects", async () => {
   await assert.rejects(broken.invoke(baseRequest), (error) => error.code === "POLICY_EVALUATION_FAILED");
 });
 
-test("requires distinct, short-lived human approval for side-effecting tools", async () => {
-  const tools = registry({ clock: () => new Date("2026-10-09T12:00:00Z"), verifyApproval: async ({ approval }) => approval.approvalId === "approval-1" });
+test("requires distinct, short-lived, single-use approval for side-effecting tools", async () => {
+  const consumed = new Set();
+  const tools = registry({
+    clock: () => new Date("2026-10-09T12:00:00Z"),
+    consumeApproval: async ({ approval }) => {
+      if (approval.approvalId !== "approval-1" || consumed.has(approval.approvalId)) return false;
+      consumed.add(approval.approvalId);
+      return true;
+    },
+  });
   tools.register(definition("workspace.write", { readOnly: false, handler: async () => ({ ok: true }) }));
   await assert.rejects(tools.invoke({ ...baseRequest, toolId: "workspace.write" }), (error) => error.code === "APPROVAL_REQUIRED");
   const approval = { approved: true, approvalId: "approval-1", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
   assert.deepEqual(await tools.invoke({ ...baseRequest, toolId: "workspace.write", approval }), { ok: true });
+  await assert.rejects(tools.invoke({ ...baseRequest, toolId: "workspace.write", approval }), (error) => error.code === "APPROVAL_NOT_CONSUMED");
   await assert.rejects(tools.invoke({ ...baseRequest, toolId: "workspace.write", approval: { ...approval, approvedBy: baseRequest.principalId } }), (error) => error.code === "APPROVAL_REQUIRED");
   await assert.rejects(tools.invoke({ ...baseRequest, toolId: "workspace.write", approval: { ...approval, expiresAt: "2026-10-09T12:16:00Z" } }), (error) => error.code === "APPROVAL_INVALID_OR_EXPIRED");
+});
+
+test("fails closed when an atomic approval consumer is unavailable", async () => {
+  const tools = registry({ clock: () => new Date("2026-10-09T12:00:00Z") });
+  tools.register(definition("workspace.write", { readOnly: false }));
+  const approval = { approved: true, approvalId: "approval-1", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
+  await assert.rejects(
+    tools.invoke({ ...baseRequest, toolId: "workspace.write", approval }),
+    (error) => error.code === "APPROVAL_CONSUMER_UNAVAILABLE",
+  );
+});
+
+test("only one concurrent invocation can consume a single-use approval", async () => {
+  const claimed = new Set();
+  let handlerCalls = 0;
+  const tools = registry({
+    clock: () => new Date("2026-10-09T12:00:00Z"),
+    consumeApproval: async ({ approval }) => {
+      // This synchronous claim models an atomic compare-and-set in durable storage.
+      if (claimed.has(approval.approvalId)) return false;
+      claimed.add(approval.approvalId);
+      await Promise.resolve();
+      return true;
+    },
+  });
+  tools.register(definition("workspace.write", { readOnly: false, handler: async () => { handlerCalls += 1; return { ok: true }; } }));
+  const approval = { approved: true, approvalId: "approval-race", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
+  const results = await Promise.allSettled([
+    tools.invoke({ ...baseRequest, toolId: "workspace.write", approval }),
+    tools.invoke({ ...baseRequest, toolId: "workspace.write", approval }),
+  ]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected" && result.reason.code === "APPROVAL_NOT_CONSUMED").length, 1);
+  assert.equal(handlerCalls, 1);
 });
 
 test("enforces input and output byte limits", async () => {
@@ -115,21 +158,21 @@ test("rejects non-JSON and invalid request payloads", async () => {
   await assert.rejects(tools.invoke({ toolId: "workspace.read", principalId: "", input: {} }), (error) => error.code === "INVALID_TOOL_REQUEST");
 });
 
-test("fails closed when approval metadata is forged or no trusted verifier exists", async () => {
+test("fails closed when approval metadata is forged or atomic consumption rejects it", async () => {
   const approval = { approved: true, approvalId: "fake", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
-  const noVerifier = registry({ clock: () => new Date("2026-10-09T12:00:00Z") });
-  noVerifier.register(definition("workspace.write", { readOnly: false }));
+  const noConsumer = registry({ clock: () => new Date("2026-10-09T12:00:00Z") });
+  noConsumer.register(definition("workspace.write", { readOnly: false }));
   await assert.rejects(
-    noVerifier.invoke({ ...baseRequest, toolId: "workspace.write", approval }),
-    (error) => error.code === "APPROVAL_VERIFIER_UNAVAILABLE",
+    noConsumer.invoke({ ...baseRequest, toolId: "workspace.write", approval }),
+    (error) => error.code === "APPROVAL_CONSUMER_UNAVAILABLE",
   );
   const trusted = registry({
     clock: () => new Date("2026-10-09T12:00:00Z"),
-    verifyApproval: async ({ approval: candidate }) => candidate.approvalId === "real-record",
+    consumeApproval: async ({ approval: candidate }) => candidate.approvalId === "real-record",
   });
   trusted.register(definition("workspace.write", { readOnly: false }));
   await assert.rejects(
     trusted.invoke({ ...baseRequest, toolId: "workspace.write", approval }),
-    (error) => error.code === "APPROVAL_NOT_VERIFIED",
+    (error) => error.code === "APPROVAL_NOT_CONSUMED",
   );
 });
