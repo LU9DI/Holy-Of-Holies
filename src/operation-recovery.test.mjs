@@ -69,3 +69,32 @@ test("rejects missing operations and unsupported retry decisions", async (t) => 
   );
   assert.equal(await recovery.get("missing"), null);
 });
+
+test("reconstructs pending and resolved operations from a fresh instance after restart", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-recovery-restart-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ledgerPath = join(dir, "events.jsonl");
+  const first = new OperationRecovery({ ledger: new EventLedger(ledgerPath) });
+  await first.recordInterrupted(interrupted);
+  await first.recordInterrupted({ ...interrupted, operationId: "op-002" });
+  await first.resolve({ operationId: "op-002", resolvedBy: "operator:1", resolution: "confirmed_succeeded", evidenceRef: "receipt:op-002" });
+
+  const restarted = new OperationRecovery({ ledger: new EventLedger(ledgerPath) });
+  const snapshot = await restarted.inspect();
+  assert.deepEqual(snapshot.pending.map((item) => item.operationId), ["op-001"]);
+  assert.deepEqual(snapshot.resolved.map((item) => item.operationId), ["op-002"]);
+  assert.equal(snapshot.pending[0].retryAutomatically, false);
+  assert.equal(snapshot.resolved[0].resolution.resolution, "confirmed_succeeded");
+});
+
+test("fails closed when durable ledger contains an orphan resolution", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-recovery-corrupt-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ledger = new EventLedger(join(dir, "events.jsonl"));
+  await ledger.append({
+    type: "operation.resolved",
+    payload: { operationId: "op-orphan", resolvedBy: "operator:1", resolution: "confirmed_failed", evidenceRef: "audit:1" },
+  });
+  const recovery = new OperationRecovery({ ledger });
+  await assert.rejects(recovery.inspect(), (error) => error.code === "RECOVERY_LEDGER_INVALID");
+});
