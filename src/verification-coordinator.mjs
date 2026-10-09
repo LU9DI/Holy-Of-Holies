@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 const HASH = /^[a-f0-9]{64}$/;
 
@@ -155,7 +153,12 @@ export class VerificationCoordinator {
               verifierId: attestation.verifierId,
               issuedAt: attestation.issuedAt,
               expiresAt: attestation.expiresAt,
-              signatureHash: createHash("sha256").update(attestation.signature).digest("hex"),
+              signature: attestation.signature,
+              schemaVersion: attestation.schemaVersion,
+              taskId: attestation.taskId,
+              projectId: attestation.projectId,
+              outcome: attestation.outcome,
+              resultHash: attestation.resultHash,
             },
           } : {}),
         },
