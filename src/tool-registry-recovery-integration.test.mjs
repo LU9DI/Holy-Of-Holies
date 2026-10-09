@@ -121,3 +121,32 @@ test("concurrent duplicate operation IDs never dispatch the side effect twice", 
   assert.equal((await env.recovery.get(request.operationId)).status, "completed");
   assert.equal((await env.ledger.read()).filter((event) => event.type === "operation.started").length, 1);
 });
+
+
+test("a recreated registry cannot redispatch a completed operation after restart", async (t) => {
+  const env = await setup(t);
+  await env.tools.invoke(request);
+  assert.equal(env.dispatched, 1);
+
+  let restartedDispatches = 0;
+  const restartedRecovery = new OperationRecovery({ ledger: new EventLedger(env.path), clock: now });
+  const restartedTools = new ToolRegistry({
+    authorize: async () => ({ allowed: true }),
+    consumeApproval: async () => true,
+    operationJournal: restartedRecovery,
+    clock: now,
+  });
+  restartedTools.register(definition(async () => {
+    restartedDispatches += 1;
+    return { ok: true };
+  }));
+
+  await assert.rejects(
+    restartedTools.invoke(request),
+    (error) => error.code === "OPERATION_JOURNAL_BEGIN_FAILED",
+  );
+  assert.equal(restartedDispatches, 0);
+  assert.equal((await restartedRecovery.get(request.operationId)).status, "completed");
+  assert.equal((await env.ledger.read()).filter((event) => event.type === "operation.started").length, 1);
+  assert.equal((await env.ledger.read()).filter((event) => event.type === "operation.completed").length, 1);
+});
