@@ -46,6 +46,8 @@ test("records runner evidence without storing raw stdout or stderr and requests 
   assert.equal(result.report.outcome, "passed");
   assert.equal(issued, 1);
   assert.equal(result.attestation.resultHash, result.report.resultHash);
+  assert.equal(result.completionEvidence.attestation.signature, result.attestation.signature);
+  assert.equal(result.completionEvidence.resultHash, result.report.resultHash);
   const events = await ledger.read();
   assert.deepEqual(events.map((event) => event.type), ["verification.started", "verification.completed"]);
   assert.equal("stdout" in events[1].payload, false);
