@@ -147,7 +147,7 @@ export class VerificationCoordinator {
         }
         if (!attestation || attestation.verificationId !== verificationId ||
             attestation.taskId !== taskId || attestation.projectId !== projectId ||
-            attestation.outcome !== "passed" || attestation.resultHash !== report.resultHash ||
+            attestation.outcome !== "passed" || attestation.schemaVersion !== 2 || attestation.resultHash !== report.resultHash ||
             !validId(attestation.verifierId) || !SIGNATURE.test(attestation.signature ?? "")) {
           await this.#ledger.append({
             type: "verification.invalid_attestation",

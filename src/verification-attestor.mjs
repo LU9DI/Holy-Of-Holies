@@ -10,7 +10,7 @@ export class VerificationAttestorError extends Error {
 function validId(value) { return typeof value === "string" && ID.test(value); }
 function canonicalReport(report) {
   return JSON.stringify({
-    schemaVersion: 1, verificationId: report.verificationId, taskId: report.taskId,
+    schemaVersion: 2, verificationId: report.verificationId, taskId: report.taskId,
     projectId: report.projectId, verifierId: report.verifierId, outcome: report.outcome,
     resultHash: report.resultHash, issuedAt: report.issuedAt, expiresAt: report.expiresAt,
   });
@@ -59,7 +59,7 @@ export class VerificationAttestor {
       throw new VerificationAttestorError("INVALID_REPORT_WINDOW", "attestation must be current and expire within ten minutes of issue");
     }
     const report = {
-      schemaVersion: 1, verificationId, taskId, projectId, verifierId, outcome, resultHash,
+      schemaVersion: 2, verificationId, taskId, projectId, verifierId, outcome, resultHash,
       issuedAt: issued, expiresAt: expires,
     };
     const signature = sign(null, Buffer.from(canonicalReport(report), "utf8"), this.#privateKey).toString("hex");

@@ -15,14 +15,14 @@ export class VerificationEngineError extends Error {
 
 function canonicalReport(report) {
   return JSON.stringify({
-    schemaVersion: 1, verificationId: report.verificationId, taskId: report.taskId,
+    schemaVersion: 2, verificationId: report.verificationId, taskId: report.taskId,
     projectId: report.projectId, verifierId: report.verifierId, outcome: report.outcome,
     resultHash: report.resultHash, issuedAt: report.issuedAt, expiresAt: report.expiresAt,
   });
 }
 function validId(value) { return typeof value === "string" && ID.test(value); }
 function isValidSignedRecord(record) {
-  return Boolean(record && record.schemaVersion === 1 &&
+  return Boolean(record && record.schemaVersion === 2 &&
     [record.verificationId, record.taskId, record.projectId, record.verifierId].every(validId) &&
     record.outcome === "passed" && HASH.test(record.resultHash ?? "") &&
     typeof record.issuedAt === "string" && Number.isFinite(Date.parse(record.issuedAt)) &&
