@@ -117,7 +117,7 @@ export class OperationRecovery {
     requireId(operationId, "operationId"); requireId(resolvedBy, "resolvedBy");
     if (!RESOLUTIONS.has(resolution)) throw new OperationRecoveryError("INVALID_RESOLUTION", "resolution must explicitly confirm success, failure, or non-execution");
     if (typeof evidenceRef !== "string" || evidenceRef.trim().length < 1 || evidenceRef.length > 500) throw new OperationRecoveryError("EVIDENCE_REQUIRED", "a bounded reference to reconciliation evidence is required");
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
       const snapshot = await this.#snapshot();
       const record = snapshot.get(operationId);
       if (!record || !["interrupted", "started"].includes(record.status)) throw new OperationRecoveryError("OPERATION_NOT_FOUND", "no unresolved operation with this ID exists");
@@ -127,7 +127,11 @@ export class OperationRecovery {
       try {
         const event = await this.#ledger.append({ type: "operation.resolved", payload: { operationId, resolvedBy, resolution, evidenceRef: evidenceRef.trim() }, at: this.#now(), expectedHeadHash: events.at(-1)?.hash ?? "0".repeat(64) });
         return Object.freeze({ operationId, resolution, eventHash: event.hash });
-      } catch (error) { if (!String(error?.message ?? "").includes("head changed")) throw error; }
+      } catch (error) {
+        const message = String(error?.message ?? "");
+        if (!message.includes("head changed") && !message.includes("event ledger is locked")) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
     }
     throw new OperationRecoveryError("LEDGER_CONTENTION", "could not safely record resolution after concurrent ledger updates");
   }
@@ -159,7 +163,7 @@ export class OperationRecovery {
   }
 
   async #appendTransition(type, payload, decide) {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
       const records = await this.#snapshot();
       const existing = records.get(payload.operationId);
       const decision = decide(existing);
@@ -168,7 +172,11 @@ export class OperationRecovery {
       try {
         await this.#ledger.append({ type, payload, at: this.#now(), expectedHeadHash: events.at(-1)?.hash ?? "0".repeat(64) });
         return;
-      } catch (error) { if (!String(error?.message ?? "").includes("head changed")) throw error; }
+      } catch (error) {
+        const message = String(error?.message ?? "");
+        if (!message.includes("head changed") && !message.includes("event ledger is locked")) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
     }
     throw new OperationRecoveryError("LEDGER_CONTENTION", "could not safely record operation after concurrent ledger updates");
   }
