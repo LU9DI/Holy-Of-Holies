@@ -20,7 +20,7 @@ This repository owns orchestration and policy contracts. It does not own the Zio
 - **Event ledger**: append-only JSONL records with sequence numbers, SHA-256 hash chaining, fsync and lock-based writer coordination.
 - **Provider registry**: explicit provider selection, declared capabilities, status probing and policy authorization before invocation.
 - **Workspace manager**: canonical-root path checks, symlink rejection, bounded reads, atomic writes, file hashes and expected-version checks.
-- **Tool registry with schema enforcement (next)**: typed input/output schemas and operating-system permission boundaries.
+- **Tool registry**: strict JSON contracts, input/output byte limits, cancellation, timeout requests, deny-by-default policy checks, and independently verified short-lived approval for side effects. Timeouts cannot terminate hostile in-process code; production still needs OS isolation.
 - **Evidence / audit hardening (next)**: secret redaction, signed provenance and external anchoring.
 - **Provider adapters (next)**: REA, model providers and later Zion integration.
 
@@ -47,7 +47,7 @@ This repository owns orchestration and policy contracts. It does not own the Zio
 1. Task state machine and policy evaluator.
 2. Tests for transition invariants, malformed policies and approval requirements.
 3. Durable event store and serialized orchestration.
-4. Tool registry with schema validation and enforcement hooks.
+4. Tool registry with schema validation, bounded payloads, cancellation, and trusted approval-verifier hooks.
 5. Workspace transactions and safe rollback.
 6. Provider gateway with explicit capability negotiation.
 7. Integration, fault-injection and security tests.
