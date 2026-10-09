@@ -32,13 +32,21 @@ test("creates a queued task with deterministic timestamps and creation event", (
   assert.ok(Object.isFrozen(task.permissions));
 });
 
-test("rejects invalid resource limits and self-parenting", () => {
+test("rejects invalid limits, unknown permissions and self-parenting", () => {
   assert.throws(
     () => createTask(input({ resourceLimits: { timeoutMs: 0, maxOutputBytes: 1, maxConcurrentChildren: 0 } })),
     /timeoutMs/,
   );
   assert.throws(
+    () => createTask(input({ permissions: { filesystem: "read", network: "none", execution: "none", shell: "enabled" } })),
+    /unknown fields/,
+  );
+  assert.throws(
     () => createTask(input({ parentTaskId: "task-1" })),
+    /own parent/,
+  );
+  assert.throws(
+    () => createTask(input({ taskId: " task-1 ", parentTaskId: "task-1" })),
     /own parent/,
   );
 });
