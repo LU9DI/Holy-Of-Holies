@@ -2,13 +2,13 @@
 
 Holy of Holies is the sovereign, open-source orchestration core for a free, decentralized and security-first software engineering platform. The core is licensed under **GNU AGPL-3.0-or-later**, chosen as an initial copyleft default so modified network-served versions remain available to their users. This is a project licensing decision, not legal advice.
 
-This repository is the **Holy of Holies core**, not the Zion implementation. Zion is maintained separately and must be integrated only through versioned external adapters/contracts. REA is an external engineering-analysis capability, not the core itself.
+This repository is the **standalone Holy of Holies (HH) core**, not the Zion implementation. HH has no mandatory dependency on Zion, REA, or any other external system and must remain fully usable when all integrations are absent. Zion and REA are independently maintained projects. A user may explicitly opt into connecting HH to either of them—or to a different system—through versioned, documented adapters/contracts. No integration is enabled, assumed, or required by default; the user must control connection, permissions, data sharing, and disconnection.
 
 ## Architectural boundaries
 
 - **Core:** task lifecycle, policy decisions, project/workspace coordination, evidence and recovery.
-- **REA adapter:** optional, capability-declared integration for engineering analysis.
-- **Zion adapter:** optional, capability-declared integration for distributed transport/storage; implementation belongs in its own repository.
+- **External integrations:** optional, independently versioned adapters selected and configured by the user. Zion, REA, and other systems are examples, not dependencies or privileged defaults.
+- **Integration boundary:** the core must start and support its local workflows without any adapter installed. Adapters must declare capabilities, request only scoped permissions, and be removable without corrupting core data or lifecycle state.
 - **Model providers:** replaceable. Essential workflows must not require a paid API or a proprietary hosted service.
 - **Security:** deny by default. A policy decision is not a substitute for operating-system isolation; untrusted code must not run unless an effective sandbox is independently established.
 
