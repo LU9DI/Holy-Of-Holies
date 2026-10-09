@@ -27,7 +27,7 @@ async function fixture(t) {
 
 function issuer({ verificationId, taskId, projectId, verifierId, outcome, resultHash }) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     verificationId, taskId, projectId, verifierId, outcome, resultHash,
     issuedAt: "2026-10-09T12:00:00.000Z",
     expiresAt: "2026-10-09T12:05:00.000Z",
@@ -57,7 +57,7 @@ test("records runner evidence without storing raw stdout or stderr and requests 
   assert.equal("stderr" in events[1].payload, false);
   assert.match(events[1].payload.attestation.signature, /^[a-f0-9]{128}$/);
   assert.equal(events[1].payload.attestation.resultHash, result.report.resultHash);
-  assert.equal(events[1].payload.attestation.schemaVersion, 2);
+  assert.equal(events[1].payload.attestation.schemaVersion, 3);
 });
 
 test("does not request an attestation for failed checks", async (t) => {
@@ -204,6 +204,8 @@ printf '%s\\n' "$@"
   assert.equal(result.report.cleanupSucceeded, true);
   assert.match(result.report.workspaceHash, /^[a-f0-9]{64}$/);
   assert.equal(result.report.workspaceChanged, false);
+  assert.equal(result.completionEvidence.workspaceHash, result.attestation.workspaceHash);
+  assert.equal(result.completionEvidence.workspaceHashAfter, result.attestation.workspaceHashAfter);
 });
 
 test("rejects attestation with malformed or excessive validity window", async (t) => {

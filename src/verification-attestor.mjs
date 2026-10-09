@@ -10,9 +10,10 @@ export class VerificationAttestorError extends Error {
 function validId(value) { return typeof value === "string" && ID.test(value); }
 function canonicalReport(report) {
   return JSON.stringify({
-    schemaVersion: 2, verificationId: report.verificationId, taskId: report.taskId,
+    schemaVersion: 3, verificationId: report.verificationId, taskId: report.taskId,
     projectId: report.projectId, verifierId: report.verifierId, outcome: report.outcome,
     resultHash: report.resultHash, issuedAt: report.issuedAt, expiresAt: report.expiresAt,
+    workspaceHash: report.workspaceHash ?? null, workspaceHashAfter: report.workspaceHashAfter ?? null,
   });
 }
 
@@ -35,7 +36,7 @@ export class VerificationAttestor {
     this.#clock = clock;
   }
 
-  attest({ verificationId, taskId, projectId, verifierId, outcome, resultHash, issuedAt, expiresAt } = {}) {
+  attest({ verificationId, taskId, projectId, verifierId, outcome, resultHash, issuedAt, expiresAt, workspaceHash, workspaceHashAfter } = {}) {
     if (![verificationId, taskId, projectId, verifierId].every(validId)) {
       throw new VerificationAttestorError("INVALID_REPORT", "report identifiers are invalid");
     }
@@ -43,6 +44,10 @@ export class VerificationAttestor {
     if (!this.#trustedVerifiers.has(verifierId)) throw new VerificationAttestorError("UNTRUSTED_VERIFIER", "verifier is not on the trusted allowlist");
     if (outcome !== "passed" || typeof resultHash !== "string" || !HASH.test(resultHash)) {
       throw new VerificationAttestorError("INVALID_REPORT", "only passed reports with a SHA-256 result hash can be attested");
+    }
+    if ((workspaceHash !== undefined || workspaceHashAfter !== undefined) &&
+        (!HASH.test(workspaceHash ?? "") || !HASH.test(workspaceHashAfter ?? "") || workspaceHash !== workspaceHashAfter)) {
+      throw new VerificationAttestorError("INVALID_REPORT", "workspace hashes must be valid and unchanged for a passing attestation");
     }
     let issued;
     let expires;
@@ -59,7 +64,7 @@ export class VerificationAttestor {
       throw new VerificationAttestorError("INVALID_REPORT_WINDOW", "attestation must be current and expire within ten minutes of issue");
     }
     const report = {
-      schemaVersion: 2, verificationId, taskId, projectId, verifierId, outcome, resultHash,
+      schemaVersion: 3, verificationId, taskId, projectId, verifierId, outcome, resultHash,
       issuedAt: issued, expiresAt: expires,
     };
     const signature = sign(null, Buffer.from(canonicalReport(report), "utf8"), this.#privateKey).toString("hex");

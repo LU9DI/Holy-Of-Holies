@@ -68,3 +68,15 @@ test("verifies persisted Ed25519 attestations after verifier restart and rejects
   const forged = { ...signed, resultHash: "b".repeat(64) };
   assert.equal(await restarted.verifyCompletion({ task, evidence: { ...evidence, resultHash: forged.resultHash, attestation: forged } }), false);
 });
+
+test("binds workspace digest to signed evidence and optional task revision", async () => {
+  const digest = "c".repeat(64);
+  const signed = attestor().attest(report({ verificationId: "verify-workspace", workspaceHash: digest, workspaceHashAfter: digest }));
+  const verifier = engine();
+  const workspaceEvidence = {
+    ...evidence, verificationId: "verify-workspace", workspaceHash: digest, workspaceHashAfter: digest, attestation: signed,
+  };
+  assert.equal(await verifier.verifyCompletion({ task, evidence: workspaceEvidence }), true);
+  assert.equal(await verifier.verifyCompletion({ task, evidence: { ...workspaceEvidence, workspaceHash: "d".repeat(64) } }), false);
+  assert.equal(await verifier.verifyCompletion({ task: { ...task, workspaceHash: "d".repeat(64) }, evidence: workspaceEvidence }), false);
+});

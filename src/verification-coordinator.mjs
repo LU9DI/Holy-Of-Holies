@@ -156,10 +156,14 @@ export class VerificationCoordinator {
         const expiresMs = Date.parse(attestation?.expiresAt ?? "");
         if (!attestation || attestation.verificationId !== verificationId ||
             attestation.taskId !== taskId || attestation.projectId !== projectId ||
-            attestation.outcome !== "passed" || attestation.schemaVersion !== 2 || attestation.resultHash !== report.resultHash ||
+            attestation.outcome !== "passed" || attestation.schemaVersion !== 3 || attestation.resultHash !== report.resultHash ||
             !validId(attestation.verifierId) || !SIGNATURE.test(attestation.signature ?? "") ||
             !Number.isFinite(issuedMs) || !Number.isFinite(expiresMs) || expiresMs <= issuedMs ||
-            expiresMs - issuedMs > MAX_ATTESTATION_TTL_MS) {
+            expiresMs - issuedMs > MAX_ATTESTATION_TTL_MS ||
+            (typeof report.workspaceHash === "string" &&
+              (attestation.workspaceHash !== report.workspaceHash || attestation.workspaceHashAfter !== report.workspaceHashAfter)) ||
+            (report.workspaceHash === undefined &&
+              (attestation.workspaceHash !== undefined || attestation.workspaceHashAfter !== undefined))) {
           await this.#ledger.append({
             type: "verification.invalid_attestation",
             at: this.#clock().toISOString(),
@@ -183,6 +187,9 @@ export class VerificationCoordinator {
               expiresAt: attestation.expiresAt,
               signature: attestation.signature,
               schemaVersion: attestation.schemaVersion,
+              ...(typeof attestation.workspaceHash === "string" ? {
+                workspaceHash: attestation.workspaceHash, workspaceHashAfter: attestation.workspaceHashAfter,
+              } : {}),
               taskId: attestation.taskId,
               projectId: attestation.projectId,
               outcome: attestation.outcome,

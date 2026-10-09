@@ -15,21 +15,24 @@ export class VerificationEngineError extends Error {
 
 function canonicalReport(report) {
   return JSON.stringify({
-    schemaVersion: 2, verificationId: report.verificationId, taskId: report.taskId,
+    schemaVersion: 3, verificationId: report.verificationId, taskId: report.taskId,
     projectId: report.projectId, verifierId: report.verifierId, outcome: report.outcome,
     resultHash: report.resultHash, issuedAt: report.issuedAt, expiresAt: report.expiresAt,
+    workspaceHash: report.workspaceHash ?? null, workspaceHashAfter: report.workspaceHashAfter ?? null,
   });
 }
 function validId(value) { return typeof value === "string" && ID.test(value); }
 function isValidSignedRecord(record) {
-  return Boolean(record && record.schemaVersion === 2 &&
+  return Boolean(record && record.schemaVersion === 3 &&
     [record.verificationId, record.taskId, record.projectId, record.verifierId].every(validId) &&
     record.outcome === "passed" && HASH.test(record.resultHash ?? "") &&
     typeof record.issuedAt === "string" && Number.isFinite(Date.parse(record.issuedAt)) &&
     typeof record.expiresAt === "string" && Number.isFinite(Date.parse(record.expiresAt)) &&
     Date.parse(record.expiresAt) > Date.parse(record.issuedAt) &&
     Date.parse(record.expiresAt) - Date.parse(record.issuedAt) <= MAX_TTL_MS &&
-    typeof record.signature === "string" && SIGNATURE.test(record.signature));
+    typeof record.signature === "string" && SIGNATURE.test(record.signature) &&
+    ((record.workspaceHash === undefined && record.workspaceHashAfter === undefined) ||
+      (HASH.test(record.workspaceHash ?? "") && HASH.test(record.workspaceHashAfter ?? "") && record.workspaceHash === record.workspaceHashAfter)));
 }
 function validTask(task) { return validId(task.taskId) && validId(task.projectId); }
 
@@ -70,7 +73,9 @@ export class VerificationEngine {
     if (!isValidSignedRecord(record) || record.verificationId !== verificationId) return false;
     if (record.taskId !== task.taskId || record.projectId !== task.projectId ||
         record.verifierId !== evidence.verifierId || record.outcome !== evidence.outcome ||
-        record.resultHash !== evidence.resultHash || !HASH.test(evidence.resultHash ?? "")) return false;
+        record.resultHash !== evidence.resultHash || !HASH.test(evidence.resultHash ?? "") ||
+        record.workspaceHash !== evidence.workspaceHash || record.workspaceHashAfter !== evidence.workspaceHashAfter ||
+        (record.workspaceHash !== undefined && task.workspaceHash !== undefined && task.workspaceHash !== record.workspaceHash)) return false;
     const nowValue = this.#clock();
     const now = nowValue instanceof Date ? nowValue.getTime() : Date.parse(nowValue);
     if (!Number.isFinite(now) || Date.parse(record.issuedAt) > now + 30_000 || Date.parse(record.expiresAt) <= now) return false;
