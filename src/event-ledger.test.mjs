@@ -41,6 +41,25 @@ test("appends ordered events with a verifiable hash chain", async (t) => {
   });
 });
 
+test("deep-freezes returned event snapshots, including nested payloads", async (t) => {
+  const { path } = await fixture(t);
+  const ledger = new EventLedger(path);
+  const appended = await ledger.append({
+    type: "task.created",
+    payload: { task: { id: "t-1" }, tags: ["safe"] },
+  });
+
+  assert.equal(Object.isFrozen(appended), true);
+  assert.equal(Object.isFrozen(appended.payload), true);
+  assert.equal(Object.isFrozen(appended.payload.task), true);
+  assert.equal(Object.isFrozen(appended.payload.tags), true);
+  assert.throws(() => { appended.payload.task.id = "tampered"; }, TypeError);
+
+  const [readEntry] = await ledger.read();
+  assert.equal(Object.isFrozen(readEntry.payload.task), true);
+  assert.equal(readEntry.payload.task.id, "t-1");
+});
+
 test("serializes concurrent appends from the same ledger instance", async (t) => {
   const { path } = await fixture(t);
   const ledger = new EventLedger(path);
