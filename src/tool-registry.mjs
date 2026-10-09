@@ -1,5 +1,6 @@
+import { createHash } from "node:crypto";
+
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
-const HASHLESS_GENESIS = "0".repeat(64);
 
 export class ToolRegistryError extends Error {
   constructor(code, message) {
@@ -32,6 +33,16 @@ function cloneJson(value) {
   } catch {
     throw new TypeError("tool schemas and results must be JSON-compatible");
   }
+}
+
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+}
+
+function sha256Json(value) {
+  return createHash("sha256").update(canonicalJson(value), "utf8").digest("hex");
 }
 
 function validateSchema(schema, value, path = "$", depth = 0) {
@@ -236,6 +247,7 @@ export class ToolRegistry {
           toolId,
           action: "tool.invoke.side_effect",
           resource: `tool:${toolId}`,
+          inputHash: sha256Json(input),
         }) === true;
       } catch {
         consumed = false;
