@@ -36,3 +36,5 @@ export { RevocationRegistry } from "./revocation-registry.mjs";
 export { ContainerVerificationRunner, ContainerVerificationRunnerError, computeWorkspaceDigest } from "./container-verification-runner.mjs";
 
 export { OperationRecovery, OperationRecoveryError } from "./operation-recovery.mjs";
+
+export { createDurableToolRegistry } from "./durable-tool-registry.mjs";
