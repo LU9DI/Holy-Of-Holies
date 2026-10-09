@@ -98,3 +98,31 @@ test("fails closed when durable ledger contains an orphan resolution", async (t)
   const recovery = new OperationRecovery({ ledger });
   await assert.rejects(recovery.inspect(), (error) => error.code === "RECOVERY_LEDGER_INVALID");
 });
+
+test("rejects resolution events that precede interruption or violate independent review", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-recovery-order-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ledger = new EventLedger(join(dir, "events.jsonl"));
+  const resolution = (operationId, resolvedBy) => ({
+    type: "operation.resolved",
+    payload: { operationId, resolvedBy, resolution: "confirmed_failed", evidenceRef: "audit:order" },
+  });
+  await ledger.append(resolution("op-before", "operator:1"));
+  await ledger.append({
+    type: "operation.interrupted",
+    payload: { ...interrupted, operationId: "op-before" },
+  });
+  const recovery = new OperationRecovery({ ledger });
+  await assert.rejects(recovery.inspect(), (error) => error.code === "RECOVERY_LEDGER_INVALID");
+
+  const secondDir = await mkdtemp(join(tmpdir(), "holy-recovery-review-"));
+  t.after(() => rm(secondDir, { recursive: true, force: true }));
+  const secondLedger = new EventLedger(join(secondDir, "events.jsonl"));
+  await secondLedger.append({
+    type: "operation.interrupted",
+    payload: { ...interrupted, operationId: "op-same-principal" },
+  });
+  await secondLedger.append(resolution("op-same-principal", interrupted.principalId));
+  const secondRecovery = new OperationRecovery({ ledger: secondLedger });
+  await assert.rejects(secondRecovery.inspect(), (error) => error.code === "RECOVERY_LEDGER_INVALID");
+});
