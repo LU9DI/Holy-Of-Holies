@@ -11,7 +11,7 @@ async function fixture(t, options = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hoh-container-runner-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const runtime = path.join(root, "fake-runtime.cjs");
-  await writeFile(runtime, "#!/usr/bin/env node\\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\\n");
+  await writeFile(runtime, `#!${process.execPath}\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\n`);
   await chmod(runtime, 0o755);
   return new ContainerVerificationRunner({
     workspaceRoot: root, runtime, authorize: allow,
