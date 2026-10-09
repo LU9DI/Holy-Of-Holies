@@ -70,3 +70,44 @@ test("rejects invalid descriptors and requires policy callback", () => {
     commands: [{ id: "ok", executable: process.execPath, args: [], timeoutMs: 1000, maxOutputBytes: 1024, allowedExitCodes: [0] }],
   }), /authorization callback/);
 });
+
+test("fails closed when command exceeds output budget", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hoh-runner-output-"));
+  try {
+    const runner = new VerificationRunner({
+      workspaceRoot: dir,
+      commands: [{
+        id: "too-chatty", executable: process.execPath,
+        args: ["-e", "process.stdout.write('x'.repeat(8192))"],
+        timeoutMs: 3000, maxOutputBytes: 1024, allowedExitCodes: [0],
+      }],
+      authorize: allow,
+    });
+    const result = await runner.run({ taskId: "t", projectId: "p", commandId: "too-chatty", principalId: "ci" });
+    assert.equal(result.outcome, "failed");
+    assert.equal(result.outputLimitExceeded, true);
+    assert.ok(result.stdoutBytes <= 1024);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("terminates a command that exceeds its deadline", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hoh-runner-timeout-"));
+  try {
+    const runner = new VerificationRunner({
+      workspaceRoot: dir,
+      commands: [{
+        id: "slow", executable: process.execPath,
+        args: ["-e", "setTimeout(() => {}, 5000)"],
+        timeoutMs: 100, maxOutputBytes: 1024, allowedExitCodes: [0],
+      }],
+      authorize: allow,
+    });
+    const result = await runner.run({ taskId: "t", projectId: "p", commandId: "slow", principalId: "ci" });
+    assert.equal(result.outcome, "failed");
+    assert.equal(result.timedOut, true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
