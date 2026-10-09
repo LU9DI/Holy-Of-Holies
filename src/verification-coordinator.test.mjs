@@ -6,7 +6,9 @@ import path from "node:path";
 import { EventLedger } from "./event-ledger.mjs";
 import { VerificationRunner } from "./verification-runner.mjs";
 import { VerificationCoordinator } from "./verification-coordinator.mjs";
+import { generateKeyPairSync } from "node:crypto";
 import { VerificationEngine } from "./verification-engine.mjs";
+import { VerificationAttestor } from "./verification-attestor.mjs";
 
 async function fixture(t) {
   const dir = await mkdtemp(path.join(tmpdir(), "hoh-coordinator-"));
@@ -28,7 +30,7 @@ function issuer({ verificationId, taskId, projectId, verifierId, outcome, result
     verificationId, taskId, projectId, verifierId, outcome, resultHash,
     issuedAt: "2026-10-09T12:00:00.000Z",
     expiresAt: "2026-10-09T12:05:00.000Z",
-    signature: "a".repeat(64),
+    signature: "a".repeat(128),
   };
 }
 
@@ -52,7 +54,7 @@ test("records runner evidence without storing raw stdout or stderr and requests 
   assert.deepEqual(events.map((event) => event.type), ["verification.started", "verification.completed"]);
   assert.equal("stdout" in events[1].payload, false);
   assert.equal("stderr" in events[1].payload, false);
-  assert.match(events[1].payload.attestation.signature, /^[a-f0-9]{64}$/);
+  assert.match(events[1].payload.attestation.signature, /^[a-f0-9]{128}$/);
   assert.equal(events[1].payload.attestation.resultHash, result.report.resultHash);
   assert.equal(events[1].payload.attestation.schemaVersion, 1);
 });
@@ -98,9 +100,11 @@ test("rejects malformed requests and refuses an unbound attestation", async (t) 
 
 test("persists an attestation that a fresh verification engine can validate", async (t) => {
   const { ledger, runner } = await fixture(t);
-  const key = "coordinator-test-key-at-least-32-bytes";
+  const keyPair = generateKeyPairSync("ed25519");
+  const privateKey = keyPair.privateKey.export({ type: "pkcs8", format: "pem" });
+  const publicKey = keyPair.publicKey.export({ type: "spki", format: "pem" });
   const clock = () => new Date("2026-10-09T12:00:00.000Z");
-  const issuerEngine = new VerificationEngine({ key, trustedVerifiers: ["ci:trusted"], clock });
+  const issuerEngine = new VerificationAttestor({ privateKey, trustedVerifiers: ["ci:trusted"], clock });
   const coordinator = new VerificationCoordinator({
     runner, ledger,
     attest: async (input) => issuerEngine.attest({ ...input, verifierId: "ci:trusted" }),
@@ -111,7 +115,7 @@ test("persists an attestation that a fresh verification engine can validate", as
   });
   const events = await ledger.read();
   const stored = events.find((event) => event.type === "verification.completed").payload.attestation;
-  const restartedVerifier = new VerificationEngine({ key, trustedVerifiers: ["ci:trusted"], clock });
+  const restartedVerifier = new VerificationEngine({ publicKey, trustedVerifiers: ["ci:trusted"], clock });
   assert.equal(await restartedVerifier.verifyCompletion({
     task: { taskId: "task-1", projectId: "project-1" },
     evidence: {

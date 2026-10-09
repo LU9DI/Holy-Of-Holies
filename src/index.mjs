@@ -25,6 +25,7 @@ export { WorkspaceManager, WorkspaceError } from "./workspace-manager.mjs";
 export { ToolRegistry, ToolRegistryError } from "./tool-registry.mjs";
 
 export { VerificationEngine, VerificationEngineError } from "./verification-engine.mjs";
+export { VerificationAttestor, VerificationAttestorError } from "./verification-attestor.mjs";
 
 export { VerificationRunner, VerificationRunnerError } from "./verification-runner.mjs";
 

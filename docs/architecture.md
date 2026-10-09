@@ -58,7 +58,7 @@ This repository owns orchestration and policy contracts. It does not own the Zio
 The current modules provide orchestration primitives and local file operations, but they are not a complete autonomous agent, distributed runtime, hardened sandbox, transactional database, cryptographic identity system, built-in independent verifier, or production authorization boundary. Workspace path checks do not eliminate all races against a hostile process running as the same OS user. Those properties must be implemented and independently tested before the platform claims them.
 
 
-**Signed verification attestations**: `VerificationEngine` checks short-lived HMAC-SHA-256 attestations bound to task ID, project ID, trusted verifier identity, outcome, and result hash. This is a trust hook, not a build/test runner. Its in-memory record store is lost on restart, and its signing capability must be isolated from the agent. Production must split signing and verification into separate principals/services and persist attestations with replay/revocation controls.
+**Signed verification attestations**: `VerificationAttestor` issues short-lived Ed25519 signatures, while `VerificationEngine` verifies them with a public key only. Signer and verifier are separate capabilities; the verifier cannot mint signatures. Attestations bind task ID, project ID, trusted verifier identity, outcome, and result hash and can be verified after restart. The private key still requires separate-process custody, rotation and operational controls.
 
 
 ## Verification execution boundary

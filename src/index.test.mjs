@@ -19,6 +19,8 @@ test("exports the supported core primitives", () => {
     "ToolRegistryError",
     "VerificationEngine",
     "VerificationEngineError",
+    "VerificationAttestor",
+    "VerificationAttestorError",
     "VerificationRunner",
     "VerificationRunnerError",
     "VerificationCoordinator",

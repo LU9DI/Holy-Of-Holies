@@ -51,7 +51,7 @@ The current core does not yet provide cryptographic user identity, signed policy
 
 ## Independent verification boundary
 
-The verification engine accepts only short-lived signed attestations from configured trusted verifier IDs, bound to a task, project, outcome, and result hash. It does not execute tests or build artifacts itself. The attestation signing capability and key must remain in a separate trusted runner/service and must never be exposed to the planner, tool handlers, or model. The current reference implementation stores attestations in memory; restart-safe persistence and separate signing/verifying principals are production prerequisites.
+`VerificationAttestor` issues short-lived Ed25519-signed attestations; `VerificationEngine` accepts only the corresponding public key and cannot sign. Attestations bind trusted verifier ID, task, project, outcome, result hash and validity window. Neither class executes tests or build artifacts. The signing service and private key must remain in a separate trusted process/service and must never be exposed to the planner, tool handlers, or model.
 
 
 ## Verification runner

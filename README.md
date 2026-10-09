@@ -50,13 +50,13 @@ Cancellation and timeout signals are cooperative. They do **not** terminate host
 
 ## Verification Runner
 
-`VerificationRunner` executes only explicitly configured commands, with a fixed executable and argument list, no shell, policy authorization, timeouts, output limits, and hashed reports. A passing exit code is necessary but not sufficient: a trusted verification service must independently issue the signed attestation consumed by `VerificationEngine`.
+`VerificationRunner` executes only explicitly configured commands, with a fixed executable and argument list, no shell, policy authorization, timeouts, output limits, and hashed reports. A passing exit code is necessary but not sufficient: a trusted verification service must independently issue an Ed25519-signed attestation through `VerificationAttestor`. `VerificationEngine` holds only the public key and cannot sign.
 
 This runner is a constrained process launcher, **not a security sandbox**. It does not provide CPU/memory quotas, network isolation, filesystem isolation, syscall filtering, or a reliable way to kill descendants. Do not run untrusted project code directly on the host. Use `ContainerVerificationRunner` for a digest-pinned OCI container with no network, read-only source mount and explicit CPU, memory and process limits; prefer rootless Podman or an equivalent dedicated worker, and persist signed evidence outside the worker. Container isolation still depends on the host kernel and runtime and is not a VM or a formal sandbox.
 
 ## Verification Coordination and Durable Evidence
 
-`VerificationCoordinator` links the allowlisted runner to an injected external attestation issuer and the hash-chained `EventLedger`. It records start, completion, runner failure, and attestation rejection events. The ledger stores command metadata and hashes, not raw stdout/stderr, reducing accidental persistence of secrets. A passing run is not treated as complete unless the external attestation issuer returns an attestation bound to the same task, project, and result hash.
+`VerificationCoordinator` links the allowlisted runner to an injected external attestation issuer and the hash-chained `EventLedger`. It records start, completion, runner failure, and attestation rejection events. The ledger stores command metadata and hashes, not raw stdout/stderr, reducing accidental persistence of secrets. A passing run is not treated as complete unless the external attestation issuer returns an Ed25519-signed attestation bound to the same task, project, and result hash. The verifier holds only the public key; the issuer alone holds the private signing key.
 
 The issuer is an interface, not a built-in isolated service. The deployment must implement it as a separate trusted principal and configure it to sign only after independent verification. The local hash chain is tamper-evident, not immutable against a privileged attacker who can rewrite the entire ledger. Duplicate-ID checks are helpful for normal operation but are not a distributed uniqueness guarantee under multiple concurrent coordinators.
 
