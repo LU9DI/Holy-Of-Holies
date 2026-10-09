@@ -1,0 +1,56 @@
+# Holy of Holies core architecture
+
+## Scope
+
+This repository owns orchestration and policy contracts. It does not own the Zion network implementation and does not vendor the REA engine. Those systems are external providers connected through versioned adapters.
+
+## Trust boundaries
+
+1. **User / UI → Core API**: treat all task objectives, project paths, model output, tool output and imported artifacts as untrusted input.
+2. **Core → Policy Engine**: authorization is deny-by-default and scoped to exact principal, action and resource identifiers.
+3. **Core → Tool adapter**: a policy decision must be enforced at the actual operation boundary. The policy evaluator alone does not sandbox or authorize an operating-system process.
+4. **Tool adapter → external provider**: capabilities, versions, unavailable reasons, timeouts and cancellation must be explicit. Do not silently fall back to a different provider.
+5. **Task state → persistent storage**: state transitions and evidence need durable, crash-consistent persistence before recovery guarantees can be claimed.
+
+## Core modules
+
+- **Task machine**: validates task input and legal lifecycle transitions.
+- **Policy engine**: exact-match rules, deny overrides, temporal constraints and fail-closed handling of malformed policy documents.
+- **Task orchestrator (next)**: scheduling, dependency graph, concurrency, cancellation, deadlines and recovery.
+- **Workspace manager (next)**: scoped file access, diff generation, checkpoints and safe restoration.
+- **Tool registry (next)**: typed schemas, declared capabilities and enforced permission boundaries.
+- **Evidence / audit (next)**: append-only operation records with secret redaction and provenance.
+- **Provider gateway (next)**: adapter contracts for REA, model providers and later Zion integration.
+
+## Lifecycle invariants
+
+- 'completed', 'failed' and 'cancelled' are terminal for a given attempt. A retry should create a new attempt or explicit child record; it must not erase the failed attempt.
+- A task requiring approval cannot transition directly from planning to running.
+- Approval records must identify the approving principal.
+- An interrupted task may be requeued only after a resume check.
+- A transition helper is not a trusted persistence layer. The orchestrator must serialize transitions and persist them atomically to prevent concurrent writers from racing.
+- Completion requires verification evidence. The current state machine only represents lifecycle; it does not yet enforce evidence requirements.
+
+## Design constraints
+
+- No mandatory paid model API or proprietary hosted service for essential local workflows.
+- No central controller required for local task creation, policy evaluation or project inspection.
+- External providers are optional and replaceable.
+- No implicit network access for tool execution.
+- No untrusted code execution without a separately verified operating-system isolation boundary.
+- APIs are versioned and strict; unknown permissions, invalid policy documents and missing capabilities fail closed.
+
+## Implementation sequence
+
+1. Task state machine and policy evaluator.
+2. Tests for transition invariants, malformed policies and approval requirements.
+3. Durable event store and serialized orchestration.
+4. Tool registry with schema validation and enforcement hooks.
+5. Workspace transactions and safe rollback.
+6. Provider gateway with explicit capability negotiation.
+7. Integration, fault-injection and security tests.
+8. SBOM, license/notice validation and reproducible release process.
+
+## Current limitations
+
+The initial modules are small pure JavaScript helpers. They are not a complete autonomous agent, distributed runtime, sandbox, durable database, cryptographic identity system, or production authorization boundary. Those properties must be implemented and independently tested before the platform claims them.
