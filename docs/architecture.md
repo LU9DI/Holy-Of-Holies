@@ -21,7 +21,7 @@ This repository owns orchestration and policy contracts. It does not own the Zio
 - **Provider registry**: explicit provider selection, declared capabilities, status probing and policy authorization before invocation.
 - **Workspace manager**: canonical-root path checks, symlink rejection, bounded reads, atomic writes, file hashes and expected-version checks.
 - **Tool registry**: strict JSON contracts, input/output byte limits, cancellation, timeout requests, deny-by-default policy checks, and independently verified short-lived approval for side effects. Timeouts cannot terminate hostile in-process code; production still needs OS isolation.
-- **Container verification runner**: digest-pinned OCI image, no network, read-only source mount, dropped capabilities, non-root user, read-only container root and bounded CPU/memory/PIDs/output/time.
+- **Container verification runner**: digest-pinned OCI image, no network, read-only source mount, dropped capabilities, non-root user, read-only container root and bounded CPU/memory/PIDs/output/time, and a canonical SHA-256 workspace manifest checked before and after execution. Successful workspace hashes are signed into schema-v3 completion evidence.
 - **Provider adapters (next)**: REA, model providers and later Zion integration.
 
 ## Lifecycle invariants

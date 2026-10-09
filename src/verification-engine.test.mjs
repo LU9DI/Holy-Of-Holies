@@ -46,6 +46,8 @@ test("rejects untrusted verifiers, failed outcomes, invalid keys, and excessive 
   const signer = attestor();
   assert.throws(() => signer.attest(report({ verifierId: "agent:untrusted" })), (error) => error.code === "UNTRUSTED_VERIFIER");
   assert.throws(() => signer.attest(report({ outcome: "failed" })), (error) => error.code === "INVALID_REPORT");
+  assert.throws(() => signer.attest(report({ workspaceHash: "bad", workspaceHashAfter: "bad" })), (error) => error.code === "INVALID_REPORT");
+  assert.throws(() => signer.attest(report({ workspaceHash: "a".repeat(64), workspaceHashAfter: "b".repeat(64) })), (error) => error.code === "INVALID_REPORT");
   assert.throws(() => new VerificationEngine({ publicKey: "short", trustedVerifiers: ["ci:trusted"] }), /Ed25519 public key/);
   assert.throws(() => new VerificationAttestor({ privateKey: "short", trustedVerifiers: ["ci:trusted"] }), /Ed25519 private key/);
   assert.throws(() => signer.attest(report({ expiresAt: "2026-10-09T12:20:00Z" })), (error) => error.code === "INVALID_REPORT_WINDOW");
