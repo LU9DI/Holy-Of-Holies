@@ -59,3 +59,8 @@ The current modules provide orchestration primitives and local file operations, 
 
 
 **Signed verification attestations**: `VerificationEngine` checks short-lived HMAC-SHA-256 attestations bound to task ID, project ID, trusted verifier identity, outcome, and result hash. This is a trust hook, not a build/test runner. Its in-memory record store is lost on restart, and its signing capability must be isolated from the agent. Production must split signing and verification into separate principals/services and persist attestations with replay/revocation controls.
+
+
+## Verification execution boundary
+
+`VerificationRunner` invokes only preconfigured command descriptors using `spawn` with `shell: false`, explicit arguments, policy authorization, bounded runtime and bounded captured output. It records exit status and SHA-256 hashes for captured stdout/stderr and the report. It is not an OS sandbox: descendant processes may survive, and host filesystem/network/resource access is not contained. Production execution of untrusted code requires an external isolated worker and a trusted attestation service that is separate from the planner and runner process.
