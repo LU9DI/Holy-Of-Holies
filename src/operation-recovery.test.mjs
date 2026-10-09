@@ -168,3 +168,46 @@ test("does not append a new interruption to a semantically corrupt recovery hist
   );
   assert.equal((await ledger.read()).length, 1);
 });
+
+
+test("implements the durable journal lifecycle and reconstructs completed operations after restart", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-journal-lifecycle-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "events.jsonl");
+  const first = new OperationRecovery({ ledger: new EventLedger(path) });
+  const binding = { operationId: "op-lifecycle", principalId: "agent:worker", toolId: "billing.charge", inputHash: hash };
+  await first.begin(binding);
+  await first.begin(binding); // Idempotent only while the exact same operation remains in-flight.
+  assert.equal((await first.get(binding.operationId)).status, "in_flight_after_restart");
+  await first.complete(binding);
+  await assert.rejects(first.complete(binding), (error) => error.code === "OPERATION_ALREADY_TERMINAL");
+  const restarted = new OperationRecovery({ ledger: new EventLedger(path) });
+  assert.equal((await restarted.get(binding.operationId)).status, "completed");
+  assert.equal((await restarted.inspect()).completed.length, 1);
+  await assert.rejects(restarted.begin({ ...binding, inputHash: "b".repeat(64) }), (error) => error.code === "OPERATION_ID_CONFLICT");
+});
+
+test("recovers interrupted journal entries and never recommends automatic retry", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-journal-interrupt-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "events.jsonl");
+  const binding = { operationId: "op-interrupted", principalId: "agent:worker", toolId: "billing.charge", inputHash: hash };
+  const first = new OperationRecovery({ ledger: new EventLedger(path) });
+  await first.begin(binding);
+  await first.interrupt({ ...binding, reason: "TOOL_TIMEOUT" });
+  const restarted = new OperationRecovery({ ledger: new EventLedger(path) });
+  const status = await restarted.get(binding.operationId);
+  assert.equal(status.status, "unknown_after_interruption");
+  assert.equal(status.retryAutomatically, false);
+  await restarted.resolve({ operationId: binding.operationId, resolvedBy: "operator:reviewer", resolution: "confirmed_succeeded", evidenceRef: "provider-receipt:42" });
+  assert.equal((await restarted.get(binding.operationId)).status, "resolved");
+  await assert.rejects(restarted.complete(binding), (error) => error.code === "OPERATION_ALREADY_TERMINAL");
+});
+
+test("allows an independent reviewer to reconcile an intent left in flight after a crash", async (t) => {
+  const recovery = await setup(t);
+  await recovery.begin({ operationId: "op-crash", principalId: "agent:worker", toolId: "billing.charge", inputHash: hash });
+  assert.equal((await recovery.get("op-crash")).status, "in_flight_after_restart");
+  await recovery.resolve({ operationId: "op-crash", resolvedBy: "operator:reviewer", resolution: "confirmed_not_executed", evidenceRef: "provider-audit:op-crash" });
+  assert.equal((await recovery.get("op-crash")).status, "resolved");
+});
