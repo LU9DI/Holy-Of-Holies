@@ -19,3 +19,5 @@ export {
   TaskOrchestrator,
   TaskOrchestratorError,
 } from "./task-orchestrator.mjs";
+
+export { WorkspaceManager, WorkspaceError } from "./workspace-manager.mjs";
