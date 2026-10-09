@@ -70,3 +70,8 @@ Signed attestation persistence stores the complete signed record, not the signin
 ## Standalone operation and optional integrations
 
 Holy of Holies must not require Zion, REA, a hosted model, or another external service for core local workflows. Integration must never be silently activated. The user controls whether to connect a system, which capabilities to expose, what data may cross the boundary, and when to disconnect it. Adapters must fail closed when authorization or capability declarations are missing, and disabling an adapter must not erase core records. The core's security and correctness must not depend on the availability or trustworthiness of any optional integration.
+
+
+## Single-use approvals for side effects
+
+The `ToolRegistry` requires an injected `consumeApproval` callback before dispatching any side-effecting tool. The callback must atomically validate the trusted approval record and claim its ID as single-use in durable storage shared by all competing workers. A read-only verification callback is insufficient: two concurrent invocations could otherwise both pass verification and execute. Policy and input validation run before consumption to avoid burning approvals for requests already denied locally; consumption occurs immediately before dispatch. Missing, failed, expired, revoked, or already-consumed approvals fail closed. If cancellation arrives after the atomic claim but before dispatch, the approval is burned rather than made reusable. The registry cannot enforce atomicity inside an external callback or make the claim and an arbitrary external side effect one transaction; implementations must use a transactional compare-and-set/unique constraint and reconcile ambiguous outcomes rather than blindly retrying.
