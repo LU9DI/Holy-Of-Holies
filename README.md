@@ -48,6 +48,23 @@ The core now exposes `ToolRegistry` for explicit tool allowlisting. Each registe
 
 Cancellation and timeout signals are cooperative. They do **not** terminate hostile code running inside the same process. Do not register untrusted handlers in-process; production execution requires a separately hardened OS/container boundary, credential scoping, and resource enforcement.
 
+
+### Recommended durable composition
+
+For registries that may execute side effects, prefer the exported `createDurableToolRegistry` composition instead of manually wiring `ToolRegistry` and `OperationRecovery`. It requires a compatible `EventLedger`, an explicit policy evaluator, and an atomic approval consumer, and returns both `tools` and `recovery`. This makes durable intent journaling part of the composition: every non-read-only invocation requires a stable `operationId`, and dispatch is denied if the intent cannot be recorded.
+
+```js
+import { EventLedger, createDurableToolRegistry } from "holy-of-holies-core";
+
+const { tools, recovery } = createDurableToolRegistry({
+  ledger: new EventLedger("./state/operations.jsonl"),
+  authorize: policyEvaluator,
+  consumeApproval: atomicApprovalConsumer,
+});
+```
+
+The caller must supply real, trusted implementations of `policyEvaluator` and `atomicApprovalConsumer`; placeholder callbacks are not a production security boundary. Protect the ledger path and its directory with appropriate OS permissions and backups. The composition does not provide distributed consensus, external exactly-once execution, or automatic retries.
+
 ## Verification Runner
 
 `VerificationRunner` executes only explicitly configured commands, with a fixed executable and argument list, no shell, policy authorization, timeouts, output limits, and hashed reports. A passing exit code is necessary but not sufficient: a trusted verification service must independently issue an Ed25519-signed attestation through `VerificationAttestor`. `VerificationEngine` holds only the public key and cannot sign.
