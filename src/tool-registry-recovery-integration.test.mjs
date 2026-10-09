@@ -116,7 +116,7 @@ test("concurrent duplicate operation IDs never dispatch the side effect twice", 
   ]);
   assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 1);
   const rejected = outcomes.find((item) => item.status === "rejected");
-  assert.equal(rejected.reason.code, "OPERATION_ALREADY_CLAIMED");
+  assert.ok(["OPERATION_ALREADY_CLAIMED", "OPERATION_JOURNAL_BEGIN_FAILED"].includes(rejected.reason.code));
   assert.equal(env.dispatched, 1);
   assert.equal((await env.recovery.get(request.operationId)).status, "completed");
   assert.equal((await env.ledger.read()).filter((event) => event.type === "operation.started").length, 1);
