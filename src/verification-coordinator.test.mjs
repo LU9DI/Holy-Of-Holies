@@ -183,7 +183,9 @@ printf '%s\\n' "$@"
       allowedExitCodes: [0],
     }],
   });
-  const ledger = new EventLedger(path.join(dir, "audit", "events.jsonl"));
+  const auditDir = await mkdtemp(path.join(tmpdir(), "hoh-container-e2e-audit-"));
+  t.after(() => rm(auditDir, { recursive: true, force: true }));
+  const ledger = new EventLedger(path.join(auditDir, "events.jsonl"));
   const pair = generateKeyPairSync("ed25519");
   const privateKey = pair.privateKey.export({ type: "pkcs8", format: "pem" });
   const publicKey = pair.publicKey.export({ type: "spki", format: "pem" });
