@@ -6,6 +6,13 @@ import { join } from "node:path";
 import { EventLedger } from "./event-ledger.mjs";
 import { TaskOrchestrator } from "./task-orchestrator.mjs";
 
+const EVIDENCE = {
+  verificationId: "verification-42",
+  verifierId: "ci:test-runner",
+  outcome: "passed",
+  resultHash: "b".repeat(64),
+};
+
 function taskInput(taskId = "task-1", overrides = {}) {
   return {
     taskId,
@@ -96,6 +103,68 @@ test("approval transition uses a distinct authorization action", async (t) => {
   assert.equal(orchestrator.getTask("task-approved").status, "running");
   assert.ok(requests.some((request) => request.action === "task.approve" && request.principalId === "user:reviewer"));
   assert.equal(orchestrator.getTask("task-approved").events.at(-1).approvedBy, "user:reviewer");
+});
+
+test("requires trusted verification before task completion and replays evidence", async (t) => {
+  const { ledger, orchestrator } = await setup(t, {
+    verifyCompletion: async ({ task, evidence }) =>
+      task.taskId === "task-complete" && evidence.verificationId === "verification-42",
+  });
+  await orchestrator.create(taskInput("task-complete"), { principalId: "user:owner" });
+  await orchestrator.transition("task-complete", "planning", {
+    principalId: "user:owner",
+    expectedStatus: "queued",
+  });
+  await orchestrator.transition("task-complete", "running", {
+    principalId: "user:owner",
+    expectedStatus: "planning",
+  });
+  await orchestrator.transition("task-complete", "verifying", {
+    principalId: "user:owner",
+    expectedStatus: "running",
+  });
+  const completed = await orchestrator.transition("task-complete", "completed", {
+    principalId: "user:owner",
+    expectedStatus: "verifying",
+    evidence: EVIDENCE,
+  });
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.events.at(-1).evidence.resultHash, EVIDENCE.resultHash);
+
+  const restarted = new (orchestrator.constructor)({
+    ledger,
+    authorize: async () => ({ allowed: true }),
+  });
+  await restarted.initialize();
+  assert.equal(restarted.getTask("task-complete").status, "completed");
+  assert.equal(restarted.getTask("task-complete").events.at(-1).evidence.verificationId, "verification-42");
+});
+
+test("completion fails closed when no verifier is configured", async (t) => {
+  const { ledger, orchestrator } = await setup(t);
+  await orchestrator.create(taskInput("task-no-verifier"), { principalId: "user:owner" });
+  await orchestrator.transition("task-no-verifier", "planning", {
+    principalId: "user:owner",
+    expectedStatus: "queued",
+  });
+  await orchestrator.transition("task-no-verifier", "running", {
+    principalId: "user:owner",
+    expectedStatus: "planning",
+  });
+  await orchestrator.transition("task-no-verifier", "verifying", {
+    principalId: "user:owner",
+    expectedStatus: "running",
+  });
+  await assert.rejects(
+    orchestrator.transition("task-no-verifier", "completed", {
+      principalId: "user:owner",
+      expectedStatus: "verifying",
+      evidence: EVIDENCE,
+    }),
+    (error) => error.code === "VERIFICATION_ENGINE_UNAVAILABLE",
+  );
+  assert.equal(orchestrator.getTask("task-no-verifier").status, "verifying");
+  assert.equal((await ledger.verify()).eventCount, 4);
 });
 
 test("requires resume verification and expected status", async (t) => {
