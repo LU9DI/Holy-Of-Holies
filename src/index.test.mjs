@@ -15,6 +15,8 @@ test("exports the supported core primitives", () => {
     "TaskOrchestratorError",
     "WorkspaceManager",
     "WorkspaceError",
+    "ToolRegistry",
+    "ToolRegistryError",
   ]) {
     assert.ok(name in core, `missing public export: ${name}`);
   }
