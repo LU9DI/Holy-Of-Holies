@@ -11,7 +11,7 @@ async function fixture(t, options = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "hoh-container-runner-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const runtime = path.join(root, "fake-runtime.cjs");
-  await writeFile(runtime, `#!${process.execPath}\nprocess.stdout.write(JSON.stringify(process.argv.slice(2)));\n`);
+  await writeFile(runtime, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n");
   await chmod(runtime, 0o755);
   return new ContainerVerificationRunner({
     workspaceRoot: root, runtime, authorize: allow,
@@ -31,8 +31,8 @@ test("uses pinned images, read-only source, no network, and resource limits", as
     }],
   });
   const result = await runner.run({ taskId: "task-1", projectId: "project-1", commandId: "unit-tests", principalId: "ci" });
-  assert.equal(result.outcome, "passed");
-  const argv = JSON.parse(result.stdout);
+  assert.equal(result.outcome, "passed", JSON.stringify({ exitCode: result.exitCode, spawnError: result.spawnError, cleanupSucceeded: result.cleanupSucceeded, stderr: result.stderr }));
+  const argv = result.stdout.trim().split("\n");
   assert.ok(argv.includes("--network=none"));
   assert.ok(argv.includes("--read-only"));
   assert.ok(argv.includes("--cap-drop=ALL"));
