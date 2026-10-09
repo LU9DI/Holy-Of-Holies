@@ -51,6 +51,18 @@ test("expired and not-yet-active rules do not authorize", () => {
   assert.equal(evaluatePolicy({ ...request, rules: [future] }).allowed, false);
 });
 
+test("malformed policy documents fail closed even when another rule allows", () => {
+  const malformedDeny = {
+    effect: "deny",
+    principalId: "agent:planner",
+    actions: ["workspace.read"],
+    resources: "project:alpha",
+  };
+  const result = evaluatePolicy({ ...request, rules: [allow, malformedDeny] });
+  assert.equal(result.allowed, false);
+  assert.equal(result.reason, "invalid_policy");
+});
+
 test("malformed requests and invalid clocks fail closed", () => {
   assert.equal(evaluatePolicy({ ...request, principalId: "", rules: [allow] }).reason, "invalid_request");
   assert.equal(evaluatePolicy({ ...request, now: "not-a-date", rules: [allow] }).reason, "invalid_clock");
