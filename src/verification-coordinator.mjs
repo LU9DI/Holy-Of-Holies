@@ -69,16 +69,32 @@ export class VerificationCoordinator {
 
     this.#inFlight.add(verificationId);
     try {
-      const history = await this.#ledger.read();
-      if (history.some((event) => event.payload?.verificationId === verificationId)) {
-        throw new VerificationCoordinatorError("DUPLICATE_VERIFICATION", "verification ID already exists in durable history");
+      let started = false;
+      for (let attempt = 0; attempt < 3 && !started; attempt += 1) {
+        const history = await this.#ledger.read();
+        if (history.some((event) => event.payload?.verificationId === verificationId)) {
+          throw new VerificationCoordinatorError("DUPLICATE_VERIFICATION", "verification ID already exists in durable history");
+        }
+        const previous = history.at(-1);
+        try {
+          await this.#ledger.append({
+            type: "verification.started",
+            at: this.#clock().toISOString(),
+            expectedHeadHash: previous?.hash ?? "0".repeat(64),
+            payload: { verificationId, taskId, projectId, commandId, principalId },
+          });
+          started = true;
+        } catch (error) {
+          if (!String(error?.message ?? "").includes("event ledger head changed")) throw error;
+          if (attempt === 2) {
+            const latest = await this.#ledger.read();
+            if (latest.some((event) => event.payload?.verificationId === verificationId)) {
+              throw new VerificationCoordinatorError("DUPLICATE_VERIFICATION", "verification ID already exists in durable history");
+            }
+            throw new VerificationCoordinatorError("CONCURRENT_LEDGER_WRITES", "verification start conflicted with concurrent ledger writes; retry the request");
+          }
+        }
       }
-
-      await this.#ledger.append({
-        type: "verification.started",
-        at: this.#clock().toISOString(),
-        payload: { verificationId, taskId, projectId, commandId, principalId },
-      });
 
       let report;
       try {

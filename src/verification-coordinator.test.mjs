@@ -128,3 +128,19 @@ test("persists an attestation that a fresh verification engine can validate", as
   }), true);
   assert.equal(result.attestation.signature, stored.signature);
 });
+
+test("compare-and-append prevents duplicate IDs across coordinator instances", async (t) => {
+  const { ledger, runner } = await fixture(t);
+  const attest = async (input) => issuer({ ...input, verifierId: "ci:trusted" });
+  const first = new VerificationCoordinator({ runner, ledger, attest, clock: () => new Date("2026-10-09T12:00:00.000Z") });
+  const second = new VerificationCoordinator({ runner, ledger, attest, clock: () => new Date("2026-10-09T12:00:00.000Z") });
+  const request = { verificationId: "verify-race", taskId: "task-1", projectId: "project-1", commandId: "check", principalId: "ci" };
+  const results = await Promise.allSettled([first.execute(request), second.execute(request)]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+  const rejected = results.find((result) => result.status === "rejected");
+  assert.equal(rejected.reason.code, "DUPLICATE_VERIFICATION");
+  const starts = (await ledger.read()).filter((event) =>
+    event.type === "verification.started" && event.payload.verificationId === "verify-race");
+  assert.equal(starts.length, 1);
+});
