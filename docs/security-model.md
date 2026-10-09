@@ -62,3 +62,6 @@ The runner allowlists command IDs and fixes each executable, argument vector, ex
 ## Durable verification evidence
 
 Verification lifecycle events are recorded in the local hash-chained ledger. The coordinator intentionally omits raw process output from durable records and stores SHA-256 hashes and bounded metadata instead. An external issuer must return an attestation bound to the exact task, project, verification ID and result hash. The coordinator cannot prove the issuer is isolated, that a command was a sufficient test plan, or that the ledger cannot be rewritten by a privileged attacker. Multi-process uniqueness and crash-recovery semantics still require a transactional persistent store or an external coordination mechanism.
+
+
+Signed attestation persistence stores the complete signed record, not the signing key. The verifier can validate the signature without an in-memory issuance cache, allowing restart-safe verification. Revocation remains process-local in this reference implementation and must be backed by durable revocation state in production.
