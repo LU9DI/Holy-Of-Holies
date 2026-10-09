@@ -141,11 +141,18 @@ export class ToolRegistry {
   #tools = new Map();
   #authorize;
   #consumeApproval;
+  #operationJournal;
   #clock;
 
-  constructor({ authorize, consumeApproval, clock = () => new Date(), defaults = {} } = {}) {
+  constructor({ authorize, consumeApproval, operationJournal, clock = () => new Date(), defaults = {} } = {}) {
     this.#authorize = authorize;
     this.#consumeApproval = consumeApproval;
+    if (operationJournal !== undefined &&
+        (!operationJournal || typeof operationJournal.begin !== "function" ||
+         typeof operationJournal.complete !== "function" || typeof operationJournal.interrupt !== "function")) {
+      throw new TypeError("operationJournal must implement begin, complete, and interrupt");
+    }
+    this.#operationJournal = operationJournal;
     this.#clock = clock;
     this.defaults = Object.freeze({
       maxInputBytes: defaults.maxInputBytes ?? 256 * 1024,
@@ -194,7 +201,7 @@ export class ToolRegistry {
   }
 
   async invoke(request = {}) {
-    const { toolId, principalId, input, approval, signal } = request ?? {};
+    const { toolId, principalId, input, approval, signal, operationId } = request ?? {};
     if (typeof toolId !== "string" || !ID.test(toolId) || !nonEmpty(principalId)) {
       throw new ToolRegistryError("INVALID_TOOL_REQUEST", "explicit toolId and principalId are required");
     }
@@ -222,6 +229,10 @@ export class ToolRegistry {
     }
 
     if (signal?.aborted) throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled before dispatch");
+    if (!descriptor.readOnly && this.#operationJournal &&
+        (typeof operationId !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(operationId))) {
+      throw new ToolRegistryError("OPERATION_ID_REQUIRED", "durably journaled side effects require a stable operationId");
+    }
 
     let inputBytes;
     try { inputBytes = jsonBytes(input); } catch (error) { throw error; }
@@ -259,6 +270,21 @@ export class ToolRegistry {
       if (signal?.aborted) throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled after approval consumption and before dispatch");
     }
 
+    const inputHash = sha256Json(cloneJson(input));
+    if (!descriptor.readOnly && this.#operationJournal) {
+      try {
+        await this.#operationJournal.begin({
+          operationId, principalId, toolId, inputHash,
+        });
+      } catch {
+        throw new ToolRegistryError("OPERATION_JOURNAL_BEGIN_FAILED", "side-effect dispatch denied because durable operation intent could not be recorded");
+      }
+      if (signal?.aborted) {
+        // Intent is durable but no handler was dispatched; retain the record for reconciliation.
+        throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled after durable intent and before dispatch", { outcomeUnknown: false, operationId });
+      }
+    }
+
     const controller = new AbortController();
     const onAbort = () => controller.abort(signal?.reason);
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -291,12 +317,35 @@ export class ToolRegistry {
       if (!outputResult.valid) {
         throw new ToolRegistryError("OUTPUT_SCHEMA_INVALID", `tool output rejected at ${outputResult.path}: ${outputResult.reason}`);
       }
+      if (!descriptor.readOnly && this.#operationJournal) {
+        try {
+          await this.#operationJournal.complete({ operationId, principalId, toolId, inputHash });
+        } catch {
+          throw new ToolRegistryError("OPERATION_JOURNAL_COMPLETE_FAILED", "tool returned but durable completion could not be recorded", { outcomeUnknown: true, operationId });
+        }
+      }
       return cloneJson(output);
     } catch (error) {
       // Once a handler has been dispatched, a side effect may have happened even
       // if cancellation, timeout, output validation, or the handler itself failed.
       // Surface that uncertainty so callers cannot mistake the failure for a safe retry.
       const outcomeUnknown = !descriptor.readOnly;
+      if (outcomeUnknown && this.#operationJournal && operationId &&
+          !(error instanceof ToolRegistryError && error.code === "OPERATION_JOURNAL_COMPLETE_FAILED")) {
+        try {
+          await this.#operationJournal.interrupt({
+            operationId, principalId, toolId, inputHash,
+            reason: error instanceof ToolRegistryError ? error.code : "handler_failure",
+          });
+        } catch {
+          if (error instanceof ToolRegistryError) {
+            throw new ToolRegistryError(error.code, error.message, { outcomeUnknown: true, operationId, recoveryRecordFailed: true });
+          }
+          throw new ToolRegistryError("TOOL_EXECUTION_FAILED", "tool execution failed and durable interruption recording also failed", {
+            outcomeUnknown: true, operationId, recoveryRecordFailed: true,
+          });
+        }
+      }
       if (error instanceof ToolRegistryError) {
         if (outcomeUnknown && error.outcomeUnknown !== true) {
           throw new ToolRegistryError(error.code, error.message, { outcomeUnknown: true });
