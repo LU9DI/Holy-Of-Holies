@@ -240,3 +240,82 @@ test("does not mark pre-dispatch cancellation as an unknown side-effect outcome"
     (error) => error.code === "TOOL_CALL_CANCELLED" && error.outcomeUnknown !== true,
   );
 });
+
+
+test("durable operation journal records intent before dispatch and completion after success", async () => {
+  const events = [];
+  const tools = registry({
+    clock: () => new Date("2026-10-09T12:00:00Z"),
+    consumeApproval: async () => true,
+    operationJournal: {
+      begin: async (event) => { events.push({ type: "begin", ...event }); },
+      complete: async (event) => { events.push({ type: "complete", ...event }); },
+      interrupt: async (event) => { events.push({ type: "interrupt", ...event }); },
+    },
+  });
+  let dispatched = false;
+  tools.register(definition("billing.charge", {
+    readOnly: false,
+    handler: async () => { dispatched = true; return { ok: true }; },
+  }));
+  const approval = { approved: true, approvalId: "approval-journal", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
+  await assert.rejects(
+    tools.invoke({ ...baseRequest, toolId: "billing.charge", approval }),
+    (error) => error.code === "OPERATION_ID_REQUIRED",
+  );
+  assert.equal(dispatched, false);
+  await tools.invoke({ ...baseRequest, toolId: "billing.charge", operationId: "op-journal-1", approval });
+  assert.equal(dispatched, true);
+  assert.deepEqual(events.map((event) => event.type), ["begin", "complete"]);
+  assert.equal(events[0].operationId, "op-journal-1");
+  assert.match(events[0].inputHash, /^[a-f0-9]{64}$/);
+});
+
+test("durable operation journal records interruption after ambiguous timeout", async () => {
+  const events = [];
+  const tools = registry({
+    defaults: { maxInputBytes: 1024, maxOutputBytes: 1024, timeoutMs: 15 },
+    clock: () => new Date("2026-10-09T12:00:00Z"),
+    consumeApproval: async () => true,
+    operationJournal: {
+      begin: async (event) => { events.push({ type: "begin", ...event }); },
+      complete: async (event) => { events.push({ type: "complete", ...event }); },
+      interrupt: async (event) => { events.push({ type: "interrupt", ...event }); },
+    },
+  });
+  tools.register(definition("billing.charge", {
+    readOnly: false,
+    handler: () => new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 50)),
+  }));
+  const approval = { approved: true, approvalId: "approval-journal-timeout", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
+  await assert.rejects(
+    tools.invoke({ ...baseRequest, toolId: "billing.charge", operationId: "op-journal-timeout", approval }),
+    (error) => error.code === "TOOL_TIMEOUT" && error.outcomeUnknown === true,
+  );
+  assert.deepEqual(events.map((event) => event.type), ["begin", "interrupt"]);
+  assert.equal(events[1].operationId, "op-journal-timeout");
+  assert.equal(events[1].inputHash, events[0].inputHash);
+});
+
+test("refuses side-effect dispatch when durable intent cannot be recorded", async () => {
+  let dispatched = false;
+  const tools = registry({
+    clock: () => new Date("2026-10-09T12:00:00Z"),
+    consumeApproval: async () => true,
+    operationJournal: {
+      begin: async () => { throw new Error("storage unavailable"); },
+      complete: async () => {},
+      interrupt: async () => {},
+    },
+  });
+  tools.register(definition("billing.charge", {
+    readOnly: false,
+    handler: async () => { dispatched = true; return { ok: true }; },
+  }));
+  const approval = { approved: true, approvalId: "approval-journal-fail", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
+  await assert.rejects(
+    tools.invoke({ ...baseRequest, toolId: "billing.charge", operationId: "op-journal-fail", approval }),
+    (error) => error.code === "OPERATION_JOURNAL_BEGIN_FAILED",
+  );
+  assert.equal(dispatched, false);
+});
