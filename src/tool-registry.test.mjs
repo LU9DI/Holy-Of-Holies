@@ -87,6 +87,28 @@ test("fails closed when an atomic approval consumer is unavailable", async () =>
   );
 });
 
+test("binds consumed approval to the exact principal, tool, action, resource, and canonical input hash", async () => {
+  const requests = [];
+  const tools = registry({
+    clock: () => new Date("2026-10-09T12:00:00Z"),
+    consumeApproval: async (request) => { requests.push(request); return true; },
+  });
+  tools.register(definition("workspace.write", { readOnly: false }));
+  const approval = { approved: true, approvalId: "approval-bound", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
+  await tools.invoke({ ...baseRequest, toolId: "workspace.write", approval, input: { path: "README.md" } });
+  await tools.invoke({ ...baseRequest, toolId: "workspace.write", approval, input: { path: "SECURITY.md" } });
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].principalId, "agent:planner");
+  assert.equal(requests[0].toolId, "workspace.write");
+  assert.equal(requests[0].action, "tool.invoke.side_effect");
+  assert.equal(requests[0].resource, "tool:workspace.write");
+  assert.match(requests[0].inputHash, /^[a-f0-9]{64}$/);
+  assert.notEqual(requests[0].inputHash, requests[1].inputHash);
+  // Object key order must not change the approval's canonical input binding.
+  await tools.invoke({ ...baseRequest, toolId: "workspace.write", approval, input: { path: "README.md" } });
+  assert.equal(requests[0].inputHash, requests[2].inputHash);
+});
+
 test("only one concurrent invocation can consume a single-use approval", async () => {
   const claimed = new Set();
   let handlerCalls = 0;
