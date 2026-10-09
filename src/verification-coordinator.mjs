@@ -65,6 +65,45 @@ export class VerificationCoordinator {
     this.#clock = clock;
   }
 
+  /**
+   * Reports durable verification starts that have no terminal ledger event.
+   * These runs have an unknown outcome after a crash; this method never retries
+   * them automatically because the underlying command may already have caused side effects.
+   */
+  async inspectRecoveries() {
+    const events = await this.#ledger.read();
+    const runs = new Map();
+    const terminalTypes = new Set([
+      "verification.completed",
+      "verification.runner_error",
+      "verification.invalid_report",
+      "verification.attestation_error",
+      "verification.invalid_attestation",
+    ]);
+    for (const event of events) {
+      const id = event.payload?.verificationId;
+      if (!validId(id)) continue;
+      if (event.type === "verification.started") {
+        if (!runs.has(id)) {
+          runs.set(id, {
+            verificationId: id,
+            taskId: event.payload.taskId,
+            projectId: event.payload.projectId,
+            commandId: event.payload.commandId,
+            principalId: event.payload.principalId,
+            startedAt: event.at,
+            status: "unknown_after_interruption",
+          });
+        }
+      } else if (terminalTypes.has(event.type)) {
+        runs.delete(id);
+      }
+    }
+    return Object.freeze([...runs.values()]
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.verificationId.localeCompare(b.verificationId))
+      .map((run) => Object.freeze(run)));
+  }
+
   async execute({ verificationId, taskId, projectId, commandId, principalId, signal } = {}) {
     if (![verificationId, taskId, projectId, commandId, principalId].every(validId)) {
       throw new VerificationCoordinatorError("INVALID_REQUEST", "verificationId, taskId, projectId, commandId, and principalId must be valid identifiers");
