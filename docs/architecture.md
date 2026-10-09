@@ -64,3 +64,8 @@ The current modules provide orchestration primitives and local file operations, 
 ## Verification execution boundary
 
 `VerificationRunner` invokes only preconfigured command descriptors using `spawn` with `shell: false`, explicit arguments, policy authorization, bounded runtime and bounded captured output. It records exit status and SHA-256 hashes for captured stdout/stderr and the report. It is not an OS sandbox: descendant processes may survive, and host filesystem/network/resource access is not contained. Production execution of untrusted code requires an external isolated worker and a trusted attestation service that is separate from the planner and runner process.
+
+
+## Verification coordination and audit trail
+
+The coordinator records verification lifecycle events in the event ledger and persists only report metadata and output hashes, not raw captured output. It delegates signing to an injected attestation issuer and rejects attestations whose task, project, verification ID, outcome, or result hash do not match the runner report. This is integration glue, not a trusted signing service: issuer isolation, durable key management, independently selected test plans, and a hardened worker remain deployment responsibilities.
