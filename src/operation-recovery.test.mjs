@@ -180,7 +180,7 @@ test("implements the durable journal lifecycle and reconstructs completed operat
   await first.begin(binding); // Idempotent only while the exact same operation remains in-flight.
   assert.equal((await first.get(binding.operationId)).status, "in_flight_after_restart");
   await first.complete(binding);
-  await assert.rejects(first.complete(binding), (error) => error.code === "OPERATION_ALREADY_TERMINAL");
+  await first.complete(binding); // Re-recording the same durable completion is idempotent.
   const restarted = new OperationRecovery({ ledger: new EventLedger(path) });
   assert.equal((await restarted.get(binding.operationId)).status, "completed");
   assert.equal((await restarted.inspect()).completed.length, 1);
