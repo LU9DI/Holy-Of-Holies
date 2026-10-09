@@ -16,10 +16,16 @@ export class ProviderRegistryError extends Error {
 
 /**
  * Registry for explicitly selected external adapters.
- * Registration does not imply trust, sandboxing, or authorization to invoke.
+ * Registration does not imply trust or sandboxing. Invocation is authorized
+ * against the exact provider/capability resource before adapter code is called.
  */
 export class ProviderRegistry {
   #providers = new Map();
+  #authorize;
+
+  constructor({ authorize } = {}) {
+    this.#authorize = authorize;
+  }
 
   register(adapter) {
     if (!adapter || typeof adapter !== "object") {
@@ -59,7 +65,8 @@ export class ProviderRegistry {
     );
   }
 
-  async resolve({ providerId, capability }) {
+  async resolve(request = {}) {
+    const { providerId, capability } = request ?? {};
     if (!validProviderId(providerId) || !nonEmpty(capability)) {
       throw new ProviderRegistryError("INVALID_PROVIDER_REQUEST", "providerId and capability must be explicit");
     }
@@ -96,8 +103,49 @@ export class ProviderRegistry {
       providerId,
       contractVersion: entry.descriptor.contractVersion,
       capability,
-      adapter: entry.adapter,
       status: Object.freeze({ available: true }),
     });
+  }
+
+  async invoke(request = {}) {
+    const { providerId, capability, principalId, input, signal } = request ?? {};
+    if (!validProviderId(providerId) || !nonEmpty(capability) || !nonEmpty(principalId)) {
+      throw new ProviderRegistryError("INVALID_PROVIDER_REQUEST", "providerId, capability and principalId must be explicit");
+    }
+    if (signal?.aborted) {
+      throw new ProviderRegistryError("PROVIDER_CALL_CANCELLED", "provider call was cancelled before dispatch");
+    }
+    if (typeof this.#authorize !== "function") {
+      throw new ProviderRegistryError("POLICY_ENGINE_UNAVAILABLE", "provider invocation is denied because no policy evaluator is configured");
+    }
+
+    let decision;
+    try {
+      decision = await this.#authorize({
+        principalId,
+        action: "provider.invoke",
+        resource: `provider:${providerId}:${capability}`,
+      });
+    } catch {
+      throw new ProviderRegistryError("POLICY_EVALUATION_FAILED", "provider invocation denied because policy evaluation failed");
+    }
+    if (!decision || decision.allowed !== true) {
+      throw new ProviderRegistryError("POLICY_DENIED", "policy denied provider invocation");
+    }
+
+    await this.resolve({ providerId, capability });
+    const entry = this.#providers.get(providerId);
+    try {
+      return await entry.adapter.invoke({
+        capability,
+        input,
+        context: Object.freeze({ providerId, principalId, signal }),
+      });
+    } catch (error) {
+      if (signal?.aborted) {
+        throw new ProviderRegistryError("PROVIDER_CALL_CANCELLED", "provider call was cancelled");
+      }
+      throw error;
+    }
   }
 }
