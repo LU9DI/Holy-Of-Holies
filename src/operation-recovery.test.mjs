@@ -228,3 +228,52 @@ test("pre-dispatch abort is durable, terminal, and distinct from an ambiguous in
   await assert.rejects(restarted.interrupt({ ...binding, reason: "TOOL_TIMEOUT" }), (error) => error.code === "OPERATION_ALREADY_TERMINAL");
   await assert.rejects(restarted.resolve({ operationId: binding.operationId, resolvedBy: "operator:reviewer", resolution: "confirmed_not_executed", evidenceRef: "local-dispatch-record:1" }), (error) => error.code === "OPERATION_NOT_FOUND");
 });
+
+test("concurrent starts with conflicting bindings commit exactly one owner", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-recovery-start-race-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "events.jsonl");
+  const first = new OperationRecovery({ ledger: new EventLedger(path) });
+  const second = new OperationRecovery({ ledger: new EventLedger(path) });
+  const left = { operationId: "op-start-race", principalId: "agent:left", toolId: "billing.charge", inputHash: hash };
+  const right = { ...left, principalId: "agent:right" };
+  const outcomes = await Promise.allSettled([first.begin(left), second.begin(right)]);
+  assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 1);
+  const rejected = outcomes.find((item) => item.status === "rejected");
+  assert.equal(rejected.reason.code, "OPERATION_ID_CONFLICT");
+  const events = await new EventLedger(path).read();
+  assert.equal(events.filter((event) => event.type === "operation.started").length, 1);
+  assert.equal((await first.inspect()).pending.length, 1);
+});
+
+test("concurrent completion and interruption cannot both advance one operation", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-recovery-transition-race-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "events.jsonl");
+  const first = new OperationRecovery({ ledger: new EventLedger(path) });
+  const second = new OperationRecovery({ ledger: new EventLedger(path) });
+  const binding = { operationId: "op-transition-race", principalId: "agent:worker", toolId: "billing.charge", inputHash: hash };
+  await first.begin(binding);
+  const outcomes = await Promise.allSettled([
+    first.complete(binding),
+    second.interrupt({ ...binding, reason: "simultaneous timeout" }),
+  ]);
+  assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 1);
+  const events = await new EventLedger(path).read();
+  assert.equal(events.filter((event) => event.type === "operation.completed" || event.type === "operation.interrupted").length, 1);
+  const status = await first.get(binding.operationId);
+  assert.ok(["completed", "unknown_after_interruption"].includes(status.status));
+  assert.equal(status.retryAutomatically, false);
+});
+
+test("a reconciled in-flight operation cannot be completed or restarted", async (t) => {
+  const recovery = await setup(t);
+  const binding = { operationId: "op-resolved-terminal", principalId: "agent:worker", toolId: "billing.charge", inputHash: hash };
+  await recovery.begin(binding);
+  await recovery.resolve({ operationId: binding.operationId, resolvedBy: "operator:reviewer", resolution: "confirmed_not_executed", evidenceRef: "provider-audit:op-resolved-terminal" });
+  await assert.rejects(recovery.complete(binding), (error) => error.code === "OPERATION_ALREADY_TERMINAL");
+  await assert.rejects(recovery.begin(binding), (error) => error.code === "OPERATION_ALREADY_TERMINAL");
+  assert.equal((await recovery.get(binding.operationId)).status, "resolved");
+  assert.equal((await recovery.inspect()).completed.length, 0);
+});
+
