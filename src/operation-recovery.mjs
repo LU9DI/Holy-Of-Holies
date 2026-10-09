@@ -71,6 +71,23 @@ export class OperationRecovery {
     });
   }
 
+  /** Record a cancellation known to happen before handler dispatch. */
+  async abortBeforeDispatch({ operationId, principalId, toolId, inputHash, reason }) {
+    const binding = { operationId, principalId, toolId, inputHash };
+    validateBinding(binding);
+    if (reason !== "cancelled_before_dispatch") throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "pre-dispatch abort reason is not recognized");
+    await this.#appendTransition("operation.aborted_before_dispatch", { ...binding, reason }, (record) => {
+      if (!record) throw new OperationRecoveryError("OPERATION_NOT_FOUND", "operation intent must exist before pre-dispatch abort");
+      if (!sameBinding(record.binding, binding)) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation ID is bound to different operation data");
+      if (record.status === "aborted_before_dispatch") {
+        if (record.reason !== reason) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation already has a different abort reason");
+        return "duplicate";
+      }
+      if (record.status !== "started" || record.resolution) throw new OperationRecoveryError("OPERATION_ALREADY_TERMINAL", "only an unresolved in-flight intent can be aborted before dispatch");
+      return "append";
+    });
+  }
+
   /** Backward-compatible API for imported/legacy interruption records. */
   async recordInterrupted({ operationId, principalId, toolId, inputHash, reason }) {
     validateBinding({ operationId, principalId, toolId, inputHash });
@@ -113,16 +130,17 @@ export class OperationRecovery {
 
   async inspect() {
     const records = await this.#snapshot();
-    const pending = []; const resolved = []; const completed = [];
+    const pending = []; const resolved = []; const completed = []; const aborted = [];
     for (const [operationId, record] of records) {
       const base = { operationId, principalId: record.binding.principalId, toolId: record.binding.toolId, inputHash: record.binding.inputHash, retryAutomatically: false };
       if (record.status === "completed") completed.push(Object.freeze({ ...base, status: "completed" }));
+      else if (record.status === "aborted_before_dispatch") aborted.push(Object.freeze({ ...base, status: "aborted_before_dispatch", reason: record.reason }));
       else if (record.resolution) resolved.push(Object.freeze({ ...base, status: "resolved", interrupted: record.reason ? Object.freeze({ ...record.binding, reason: record.reason }) : null, resolution: Object.freeze({ ...record.resolution }) }));
       else pending.push(Object.freeze({ ...base, status: record.status === "started" ? "in_flight_after_restart" : "unknown_after_interruption", interrupted: record.reason ? Object.freeze({ ...record.binding, reason: record.reason }) : null, reason: record.reason ?? null }));
     }
     const order = (a,b) => a.operationId.localeCompare(b.operationId);
-    pending.sort(order); resolved.sort(order); completed.sort(order);
-    return Object.freeze({ pending: Object.freeze(pending), resolved: Object.freeze(resolved), completed: Object.freeze(completed), retryAutomatically: false });
+    pending.sort(order); resolved.sort(order); completed.sort(order); aborted.sort(order);
+    return Object.freeze({ pending: Object.freeze(pending), resolved: Object.freeze(resolved), completed: Object.freeze(completed), aborted: Object.freeze(aborted), retryAutomatically: false });
   }
 
   async get(operationId) {
@@ -131,6 +149,7 @@ export class OperationRecovery {
     const record = records.get(operationId);
     if (!record) return null;
     if (record.status === "completed") return Object.freeze({ operationId, status: "completed", retryAutomatically: false });
+    if (record.status === "aborted_before_dispatch") return Object.freeze({ operationId, status: "aborted_before_dispatch", reason: record.reason, retryAutomatically: false });
     if (record.resolution) return Object.freeze({ operationId, status: "resolved", interrupted: record.reason ? Object.freeze({ ...record.binding, reason: record.reason }) : null, resolution: Object.freeze({ ...record.resolution }), retryAutomatically: false });
     return Object.freeze({ operationId, status: record.status === "started" ? "in_flight_after_restart" : "unknown_after_interruption", interrupted: record.reason ? Object.freeze({ ...record.binding, reason: record.reason }) : null, retryAutomatically: false });
   }
@@ -154,7 +173,7 @@ export class OperationRecovery {
     const events = await this.#ledger.read();
     const records = new Map();
     for (const event of events) {
-      if (!["operation.started", "operation.completed", "operation.interrupted", "operation.resolved"].includes(event.type)) continue;
+      if (!["operation.started", "operation.completed", "operation.interrupted", "operation.aborted_before_dispatch", "operation.resolved"].includes(event.type)) continue;
       const p = event.payload;
       if (!p || typeof p !== "object" || Array.isArray(p)) throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "operation event has an invalid payload");
       requireId(p.operationId, "operationId");
@@ -179,6 +198,12 @@ export class OperationRecovery {
           if (record.status !== "started" || !sameBinding(record.binding, p)) throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "interruption must follow a matching start exactly once");
           record.status = "interrupted"; record.reason = p.reason;
         }
+      } else if (event.type === "operation.aborted_before_dispatch") {
+        validateBinding(p);
+        if (p.reason !== "cancelled_before_dispatch" || !record || record.status !== "started" || !sameBinding(record.binding, p)) {
+          throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "pre-dispatch abort must follow a matching start exactly once");
+        }
+        record.status = "aborted_before_dispatch"; record.reason = p.reason;
       } else {
         requireId(p.resolvedBy, "resolvedBy");
         if (!record || !["started", "interrupted"].includes(record.status) || record.resolution ||
