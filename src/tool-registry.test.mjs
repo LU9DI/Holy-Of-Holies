@@ -59,7 +59,7 @@ test("denies closed if policy is missing, errors, or rejects", async () => {
 });
 
 test("requires distinct, short-lived human approval for side-effecting tools", async () => {
-  const tools = registry({ clock: () => new Date("2026-10-09T12:00:00Z") });
+  const tools = registry({ clock: () => new Date("2026-10-09T12:00:00Z"), verifyApproval: async ({ approval }) => approval.approvalId === "approval-1" });
   tools.register(definition("workspace.write", { readOnly: false, handler: async () => ({ ok: true }) }));
   await assert.rejects(tools.invoke({ ...baseRequest, toolId: "workspace.write" }), (error) => error.code === "APPROVAL_REQUIRED");
   const approval = { approved: true, approvalId: "approval-1", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
@@ -113,4 +113,23 @@ test("rejects non-JSON and invalid request payloads", async () => {
   tools.register(definition());
   await assert.rejects(tools.invoke({ toolId: "workspace.read", principalId: "agent:planner", input: undefined }), (error) => error.code === "INVALID_JSON_VALUE");
   await assert.rejects(tools.invoke({ toolId: "workspace.read", principalId: "", input: {} }), (error) => error.code === "INVALID_TOOL_REQUEST");
+});
+
+test("fails closed when approval metadata is forged or no trusted verifier exists", async () => {
+  const approval = { approved: true, approvalId: "fake", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
+  const noVerifier = registry({ clock: () => new Date("2026-10-09T12:00:00Z") });
+  noVerifier.register(definition("workspace.write", { readOnly: false }));
+  await assert.rejects(
+    noVerifier.invoke({ ...baseRequest, toolId: "workspace.write", approval }),
+    (error) => error.code === "APPROVAL_VERIFIER_UNAVAILABLE",
+  );
+  const trusted = registry({
+    clock: () => new Date("2026-10-09T12:00:00Z"),
+    verifyApproval: async ({ approval: candidate }) => candidate.approvalId === "real-record",
+  });
+  trusted.register(definition("workspace.write", { readOnly: false }));
+  await assert.rejects(
+    trusted.invoke({ ...baseRequest, toolId: "workspace.write", approval }),
+    (error) => error.code === "APPROVAL_NOT_VERIFIED",
+  );
 });
