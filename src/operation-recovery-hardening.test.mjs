@@ -63,7 +63,7 @@ test("recovery rejects conflicting second resolution even when the event hash ch
   await assert.rejects(recovery.inspect(), (error) => error.code === "RECOVERY_LEDGER_INVALID");
 });
 
-test("a failed durable intent write prevents side-effect dispatch", async (t) => {
+test("a failed durable intent write leaves no falsely recorded intent", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "holy-recovery-write-failure-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const ledger = new EventLedger(join(dir, "events.jsonl"));
