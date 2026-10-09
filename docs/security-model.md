@@ -57,3 +57,8 @@ The verification engine accepts only short-lived signed attestations from config
 ## Verification runner
 
 The runner allowlists command IDs and fixes each executable, argument vector, exit-code policy, timeout and output budget in trusted configuration. It uses no shell and fails closed on missing authorization. These controls reduce accidental command injection but do not make arbitrary repository code safe: a child process can access the host's OS permissions and may spawn descendants. Run untrusted builds/tests only in a disposable OS/container/VM boundary with network policy, restricted mounts and credentials, CPU/memory/PID quotas, and cleanup after termination. Hashes prove report integrity relative to the report, not that a trusted test suite was correctly chosen or that the code is secure.
+
+
+## Durable verification evidence
+
+Verification lifecycle events are recorded in the local hash-chained ledger. The coordinator intentionally omits raw process output from durable records and stores SHA-256 hashes and bounded metadata instead. An external issuer must return an attestation bound to the exact task, project, verification ID and result hash. The coordinator cannot prove the issuer is isolated, that a command was a sufficient test plan, or that the ledger cannot be rewritten by a privileged attacker. Multi-process uniqueness and crash-recovery semantics still require a transactional persistent store or an external coordination mechanism.
