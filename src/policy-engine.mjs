@@ -5,8 +5,9 @@ function nonEmpty(value) {
 function matchesRule(rule, request, nowMs) {
   if (!rule || typeof rule !== "object") return false;
   if (!["allow", "deny"].includes(rule.effect)) return false;
-  if (!nonEmpty(rule.principalId) || !nonEmpty(rule.action) || !nonEmpty(rule.resource)) return false;
+  if (!nonEmpty(rule.principalId)) return false;
   if (!Array.isArray(rule.actions) || !Array.isArray(rule.resources)) return false;
+  if (!rule.actions.every(nonEmpty) || !rule.resources.every(nonEmpty)) return false;
   if (!rule.actions.includes(request.action) || !rule.resources.includes(request.resource)) return false;
   if (rule.principalId !== request.principalId) return false;
 
