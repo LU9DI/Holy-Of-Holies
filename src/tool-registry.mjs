@@ -149,8 +149,9 @@ export class ToolRegistry {
     this.#consumeApproval = consumeApproval;
     if (operationJournal !== undefined &&
         (!operationJournal || typeof operationJournal.begin !== "function" ||
-         typeof operationJournal.complete !== "function" || typeof operationJournal.interrupt !== "function")) {
-      throw new TypeError("operationJournal must implement begin, complete, and interrupt");
+         typeof operationJournal.complete !== "function" || typeof operationJournal.interrupt !== "function" ||
+         (operationJournal.abortBeforeDispatch !== undefined && typeof operationJournal.abortBeforeDispatch !== "function"))) {
+      throw new TypeError("operationJournal must implement begin, complete, and interrupt, with optional abortBeforeDispatch");
     }
     this.#operationJournal = operationJournal;
     this.#clock = clock;
@@ -280,7 +281,14 @@ export class ToolRegistry {
         throw new ToolRegistryError("OPERATION_JOURNAL_BEGIN_FAILED", "side-effect dispatch denied because durable operation intent could not be recorded");
       }
       if (signal?.aborted) {
-        // Intent is durable but no handler was dispatched; retain the record for reconciliation.
+        // If supported, record that the handler was definitely not dispatched.
+        if (typeof this.#operationJournal.abortBeforeDispatch === "function") {
+          try {
+            await this.#operationJournal.abortBeforeDispatch({ operationId, principalId, toolId, inputHash, reason: "cancelled_before_dispatch" });
+          } catch {
+            throw new ToolRegistryError("OPERATION_JOURNAL_ABORT_FAILED", "cancellation occurred before dispatch but the durable abort could not be recorded", { outcomeUnknown: false, operationId, recoveryRecordFailed: true });
+          }
+        }
         throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled after durable intent and before dispatch", { outcomeUnknown: false, operationId });
       }
     }
