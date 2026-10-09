@@ -61,3 +61,34 @@ test("verification fails closed if durable revocation storage is unavailable", a
   const verifier = new VerificationEngine({ publicKey, trustedVerifiers: ["ci:trusted"], clock, revocationRegistry: brokenRegistry });
   assert.equal(await verifier.verifyCompletion({ task, evidence: { ...evidence, attestation: signed } }), false);
 });
+
+
+test("revocation retries a stale ledger head without losing the revocation", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "holy-revocation-race-"));
+  const { ledger } = await temporaryLedger(t, directory);
+  let injectConcurrentEvent = true;
+  const racingLedger = {
+    async read() {
+      const snapshot = await ledger.read();
+      if (injectConcurrentEvent) {
+        injectConcurrentEvent = false;
+        await ledger.append({
+          type: "test.concurrent_writer",
+          at: clock().toISOString(),
+          payload: { marker: "interleaved" },
+          expectedHeadHash: snapshot.at(-1)?.hash ?? "0".repeat(64),
+        });
+      }
+      return snapshot;
+    },
+    append: (...args) => ledger.append(...args),
+  };
+  const registry = new RevocationRegistry({ ledger: racingLedger, clock });
+  const result = await registry.revoke("verify-race", { reason: "stale report", actorId: "operator-2" });
+  assert.equal(result.revoked, true);
+  assert.equal(await registry.isRevoked("verify-race"), true);
+  const events = await ledger.read();
+  assert.equal(events.filter((event) => event.type === "verification.revoked").length, 1);
+  assert.ok(events.findIndex((event) => event.type === "test.concurrent_writer") <
+    events.findIndex((event) => event.type === "verification.revoked"));
+});
