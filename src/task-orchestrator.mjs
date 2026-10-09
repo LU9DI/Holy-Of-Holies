@@ -36,19 +36,21 @@ export class TaskOrchestrator {
   #ledger;
   #authorize;
   #verifyResume;
+  #verifyCompletion;
   #clock;
   #tasks = new Map();
   #headHash = GENESIS_HASH;
   #initialized = false;
   #queue = Promise.resolve();
 
-  constructor({ ledger, authorize, verifyResume, clock = () => new Date() } = {}) {
+  constructor({ ledger, authorize, verifyResume, verifyCompletion, clock = () => new Date() } = {}) {
     if (!ledger || typeof ledger.read !== "function" || typeof ledger.append !== "function") {
       throw new TypeError("a compatible event ledger is required");
     }
     this.#ledger = ledger;
     this.#authorize = authorize;
     this.#verifyResume = verifyResume;
+    this.#verifyCompletion = verifyCompletion;
     this.#clock = clock;
   }
 
@@ -87,6 +89,7 @@ export class TaskOrchestrator {
             ...(current.status === "interrupted" && change.to === "queued"
               ? { resumeVerified: change.resumeVerified === true }
               : {}),
+            ...(change.to === "completed" ? { evidence: change.evidence } : {}),
           });
           tasks.set(current.taskId, next);
           continue;
@@ -141,7 +144,7 @@ export class TaskOrchestrator {
     });
   }
 
-  transition(taskId, nextStatus, { principalId, expectedStatus, reason } = {}) {
+  transition(taskId, nextStatus, { principalId, expectedStatus, reason, evidence } = {}) {
     return this.#serialize(async () => {
       this.#requireInitialized();
       if (!nonEmpty(principalId) || !nonEmpty(taskId)) {
@@ -162,7 +165,9 @@ export class TaskOrchestrator {
         action = "task.approve";
         approvedBy = principalId;
       }
+      const completionRequested = current.status === "verifying" && nextStatus === "completed";
       if (resumeRequested) action = "task.resume";
+      if (completionRequested) action = "task.complete";
 
       await this.#authorizeOrDeny({
         principalId,
@@ -185,14 +190,40 @@ export class TaskOrchestrator {
       }
 
       const at = this.#clock();
-      const next = transitionTask(current, nextStatus, {
+      const transitionOptions = {
         now: at,
         ...(reason ? { reason } : {}),
         ...(approvedBy ? { approved: true, approvedBy } : {}),
         ...(current.status === "interrupted" && nextStatus === "queued"
           ? { resumeVerified }
           : {}),
-      });
+        ...(completionRequested ? { evidence } : {}),
+      };
+      const next = transitionTask(current, nextStatus, transitionOptions);
+
+      if (completionRequested) {
+        if (typeof this.#verifyCompletion !== "function") {
+          throw new TaskOrchestratorError(
+            "VERIFICATION_ENGINE_UNAVAILABLE",
+            "completion denied because no verification engine is configured",
+          );
+        }
+        let verified = false;
+        try {
+          verified = await this.#verifyCompletion({
+            task: current,
+            evidence: next.events.at(-1).evidence,
+          }) === true;
+        } catch {
+          verified = false;
+        }
+        if (!verified) {
+          throw new TaskOrchestratorError(
+            "VERIFICATION_EVIDENCE_REJECTED",
+            "completion denied because verification evidence was not accepted",
+          );
+        }
+      }
 
       const event = await this.#appendOrInvalidate({
         type: "task.transitioned",
@@ -204,6 +235,7 @@ export class TaskOrchestrator {
           ...(reason ? { reason: String(reason).slice(0, 500) } : {}),
           ...(approvedBy ? { approvedBy } : {}),
           ...(current.status === "interrupted" && nextStatus === "queued" ? { resumeVerified } : {}),
+          ...(completionRequested ? { evidence: next.events.at(-1).evidence } : {}),
         },
       });
       this.#tasks.set(taskId, next);
