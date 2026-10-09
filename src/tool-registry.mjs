@@ -229,6 +229,8 @@ export class ToolRegistry {
       throw new ToolRegistryError("POLICY_DENIED", "policy denied tool invocation");
     }
 
+    if (signal?.aborted) throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled before dispatch");
+
     let inputBytes;
     try { inputBytes = jsonBytes(input); } catch (error) { throw error; }
     if (inputBytes > descriptor.limits.maxInputBytes) {
@@ -242,6 +244,7 @@ export class ToolRegistry {
     const controller = new AbortController();
     const onAbort = () => controller.abort(signal?.reason);
     signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
     const timeout = setTimeout(() => controller.abort(new Error("tool timeout")), descriptor.limits.timeoutMs);
     let timer;
     try {
@@ -276,7 +279,7 @@ export class ToolRegistry {
       if (controller.signal.aborted && signal?.aborted) {
         throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled");
       }
-      throw new ToolRegistryError("TOOL_EXECUTION_FAILED", error instanceof Error ? error.message : "tool execution failed");
+      throw new ToolRegistryError("TOOL_EXECUTION_FAILED", "tool execution failed; sensitive handler details are suppressed");
     } finally {
       clearTimeout(timeout);
       signal?.removeEventListener("abort", onAbort);
