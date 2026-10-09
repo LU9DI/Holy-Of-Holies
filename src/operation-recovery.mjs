@@ -52,7 +52,8 @@ export class OperationRecovery {
   }
 
   /** ToolRegistry journal hook: a post-dispatch failure is an uncertain outcome. */
-  async interrupt({ ...binding, reason }) {
+  async interrupt({ operationId, principalId, toolId, inputHash, reason }) {
+    const binding = { operationId, principalId, toolId, inputHash };
     validateBinding(binding);
     if (typeof reason !== "string" || reason.trim().length < 1 || reason.length > 500) throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "reason must contain 1-500 characters");
     await this.#appendTransition("operation.interrupted", { ...binding, reason: reason.trim() }, (record) => {
