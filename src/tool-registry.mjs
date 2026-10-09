@@ -297,6 +297,7 @@ export class ToolRegistry {
         context: Object.freeze({
           toolId,
           principalId,
+          ...(operationId ? { operationId } : {}),
           signal: controller.signal,
           ...(approval ? { approval: Object.freeze({ approvalId: approval.approvalId, approvedBy: approval.approvedBy }) } : {}),
         }),
