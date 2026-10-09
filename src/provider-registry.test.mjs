@@ -106,6 +106,37 @@ test("authorizes every invocation and does not expose adapter internals", async 
   });
 });
 
+test("validates provider inputs and outputs around invocation", async () => {
+  let calls = 0;
+  const registry = new ProviderRegistry({ authorize: async () => ({ allowed: true }) });
+  registry.register(adapter("rea.validated", {
+    validateInput: (_capability, input) => Boolean(input && typeof input.projectId === "string"),
+    validateOutput: (_capability, output) => Boolean(output && output.providerId === "rea.validated"),
+    invoke: async ({ input }) => {
+      calls += 1;
+      return { providerId: "rea.validated", input };
+    },
+  }));
+  await assert.rejects(
+    registry.invoke({
+      providerId: "rea.validated",
+      capability: "analysis.read",
+      principalId: "user:owner",
+      input: { projectId: 123 },
+    }),
+    (error) => error.code === "PROVIDER_INPUT_INVALID",
+  );
+  assert.equal(calls, 0);
+  const result = await registry.invoke({
+    providerId: "rea.validated",
+    capability: "analysis.read",
+    principalId: "user:owner",
+    input: { projectId: "project-1" },
+  });
+  assert.equal(result.providerId, "rea.validated");
+  assert.equal(calls, 1);
+});
+
 test("denies provider invocation if policy is absent or denies", async () => {
   const noPolicy = new ProviderRegistry();
   noPolicy.register(adapter("rea.local"));
