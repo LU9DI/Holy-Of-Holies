@@ -277,3 +277,20 @@ test("a reconciled in-flight operation cannot be completed or restarted", async 
   assert.equal((await recovery.inspect()).completed.length, 0);
 });
 
+
+
+test("separate recovery instances never treat the same durable start as two dispatch grants", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-recovery-duplicate-start-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, "events.jsonl");
+  const first = new OperationRecovery({ ledger: new EventLedger(path) });
+  const second = new OperationRecovery({ ledger: new EventLedger(path) });
+  const binding = { operationId: "op-duplicate-cross-instance", principalId: "agent:worker", toolId: "billing.charge", inputHash: hash };
+
+  const outcomes = await Promise.allSettled([first.begin(binding), second.begin(binding)]);
+  assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 2);
+  assert.deepEqual(outcomes.map((item) => item.value.duplicate).sort(), [false, true]);
+  const events = await new EventLedger(path).read();
+  assert.equal(events.filter((event) => event.type === "operation.started").length, 1);
+  assert.equal((await first.get(binding.operationId)).status, "in_flight_after_restart");
+});
