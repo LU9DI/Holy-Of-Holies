@@ -59,8 +59,9 @@ export class VerificationEngine {
   #clock;
   #records = new Map();
   #revoked = new Set();
+  #revocationRegistry;
 
-  constructor({ key, trustedVerifiers, clock = () => new Date() } = {}) {
+  constructor({ key, trustedVerifiers, clock = () => new Date(), revocationRegistry } = {}) {
     if (!(Buffer.isBuffer(key) || key instanceof Uint8Array || typeof key === "string") ||
         Buffer.byteLength(key) < 32) {
       throw new TypeError("verification key must contain at least 32 bytes");
@@ -72,6 +73,12 @@ export class VerificationEngine {
     this.#key = Buffer.from(key);
     this.#trustedVerifiers = new Set(trustedVerifiers);
     this.#clock = clock;
+    if (revocationRegistry !== undefined &&
+        (!revocationRegistry || typeof revocationRegistry.isRevoked !== "function" ||
+         typeof revocationRegistry.revoke !== "function")) {
+      throw new TypeError("revocationRegistry must implement isRevoked() and revoke()");
+    }
+    this.#revocationRegistry = revocationRegistry;
   }
 
   /**
@@ -117,6 +124,14 @@ export class VerificationEngine {
     if (!task || !evidence || typeof evidence !== "object" || !validTask(task)) return false;
     const verificationId = evidence.verificationId;
     if (!validId(verificationId) || this.#revoked.has(verificationId)) return false;
+    if (this.#revocationRegistry) {
+      try {
+        if (await this.#revocationRegistry.isRevoked(verificationId)) return false;
+      } catch {
+        // Revocation storage is security-critical: unavailable means deny.
+        return false;
+      }
+    }
     const record = this.#records.get(verificationId) ?? evidence.attestation;
     if (!isValidSignedRecord(record) || record.verificationId !== verificationId) return false;
     if (record.taskId !== task.taskId || record.projectId !== task.projectId ||
@@ -136,6 +151,18 @@ export class VerificationEngine {
     if (!validId(verificationId)) return false;
     this.#revoked.add(verificationId);
     this.#records.delete(verificationId);
+    return true;
+  }
+
+  async revokePersistently(verificationId, details = {}) {
+    if (!validId(verificationId)) {
+      throw new VerificationEngineError("INVALID_VERIFICATION_ID", "verificationId is invalid");
+    }
+    if (!this.#revocationRegistry) {
+      throw new VerificationEngineError("REVOCATION_STORE_UNAVAILABLE", "durable revocation registry is not configured");
+    }
+    await this.#revocationRegistry.revoke(verificationId, details);
+    this.revoke(verificationId);
     return true;
   }
 

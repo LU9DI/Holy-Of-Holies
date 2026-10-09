@@ -17,6 +17,13 @@ test("exports the supported core primitives", () => {
     "WorkspaceError",
     "ToolRegistry",
     "ToolRegistryError",
+    "VerificationEngine",
+    "VerificationEngineError",
+    "VerificationRunner",
+    "VerificationRunnerError",
+    "VerificationCoordinator",
+    "VerificationCoordinatorError",
+    "RevocationRegistry",
   ]) {
     assert.ok(name in core, `missing public export: ${name}`);
   }

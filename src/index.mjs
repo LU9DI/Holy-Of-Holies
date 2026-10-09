@@ -29,3 +29,5 @@ export { VerificationEngine, VerificationEngineError } from "./verification-engi
 export { VerificationRunner, VerificationRunnerError } from "./verification-runner.mjs";
 
 export { VerificationCoordinator, VerificationCoordinatorError } from "./verification-coordinator.mjs";
+
+export { RevocationRegistry } from "./revocation-registry.mjs";
