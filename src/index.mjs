@@ -21,3 +21,5 @@ export {
 } from "./task-orchestrator.mjs";
 
 export { WorkspaceManager, WorkspaceError } from "./workspace-manager.mjs";
+
+export { ToolRegistry, ToolRegistryError } from "./tool-registry.mjs";
