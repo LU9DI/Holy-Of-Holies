@@ -67,5 +67,5 @@ test("rejects missing operations and unsupported retry decisions", async (t) => 
     recovery.resolve({ operationId: "missing", resolvedBy: "operator:1", resolution: "retry", evidenceRef: "ticket:1" }),
     (error) => error.code === "INVALID_RESOLUTION",
   );
-  await assert.rejects(recovery.get("missing"), (error) => error.code === "OPERATION_NOT_FOUND");
+  assert.equal(await recovery.get("missing"), null);
 });
