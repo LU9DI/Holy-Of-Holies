@@ -123,8 +123,6 @@ export class VerificationRunner {
 
     const startedAt = this.#clock().toISOString();
     const result = await new Promise((resolve) => {
-      let stdout = Buffer.alloc(0);
-      let stderr = Buffer.alloc(0);
       let outputBytes = 0;
       let timedOut = false;
       let cancelled = false;
@@ -165,16 +163,6 @@ export class VerificationRunner {
         finish({ exitCode: null, stdout, stderr, timedOut, cancelled, overflow, spawnError: true });
         return;
       }
-      const collect = (target) => (chunk) => {
-        if (settled) return;
-        outputBytes += chunk.length;
-        const remaining = Math.max(0, command.maxOutputBytes - target.length);
-        if (remaining > 0) target = Buffer.concat([target, chunk.subarray(0, remaining)]);
-        if (outputBytes > command.maxOutputBytes) terminate("output");
-      };
-      child.stdout.on("data", collect(stdout));
-      child.stderr.on("data", collect(stderr));
-      // Stream handlers update their own buffers through local references below.
       let out = Buffer.alloc(0);
       let err = Buffer.alloc(0);
       const capture = (kind) => (chunk) => {
