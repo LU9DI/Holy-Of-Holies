@@ -274,10 +274,14 @@ export class ToolRegistry {
     const inputHash = sha256Json(cloneJson(input));
     if (!descriptor.readOnly && this.#operationJournal) {
       try {
-        await this.#operationJournal.begin({
+        const intent = await this.#operationJournal.begin({
           operationId, principalId, toolId, inputHash,
         });
-      } catch {
+        if (intent?.duplicate === true) {
+          throw new ToolRegistryError("OPERATION_ALREADY_CLAIMED", "operation ID already has a durable intent; duplicate dispatch is denied", { outcomeUnknown: true, operationId });
+        }
+      } catch (error) {
+        if (error instanceof ToolRegistryError && error.code === "OPERATION_ALREADY_CLAIMED") throw error;
         throw new ToolRegistryError("OPERATION_JOURNAL_BEGIN_FAILED", "side-effect dispatch denied because durable operation intent could not be recorded");
       }
       if (signal?.aborted) {
