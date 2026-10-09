@@ -80,7 +80,7 @@ test("does not request an attestation for failed checks", async (t) => {
 
 test("rejects duplicate verification IDs from durable history", async (t) => {
   const { ledger, runner } = await fixture(t);
-  const coordinator = new VerificationCoordinator({ runner, ledger, attest: async (input) => issuer({ ...input, verifierId: "ci:trusted" }) });
+  const coordinator = new VerificationCoordinator({ runner, ledger, attest: async (input) => issuer({ ...input, verifierId: "ci:trusted" }), clock: () => new Date("2026-10-09T12:00:00.000Z") });
   const request = { verificationId: "verify-dup", taskId: "task-1", projectId: "project-1", commandId: "check", principalId: "ci" };
   await coordinator.execute(request);
   await assert.rejects(coordinator.execute(request), (error) => error.code === "DUPLICATE_VERIFICATION");
