@@ -1,5 +1,6 @@
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 const HASH = /^[a-f0-9]{64}$/;
+const SIGNATURE = /^[a-f0-9]{128}$/;
 
 export class VerificationCoordinatorError extends Error {
   constructor(code, message) {
@@ -146,8 +147,7 @@ export class VerificationCoordinator {
         if (!attestation || attestation.verificationId !== verificationId ||
             attestation.taskId !== taskId || attestation.projectId !== projectId ||
             attestation.outcome !== "passed" || attestation.resultHash !== report.resultHash ||
-            !validId(attestation.verifierId) || typeof attestation.signature !== "string" ||
-            attestation.signature.length < 32) {
+            !validId(attestation.verifierId) || !SIGNATURE.test(attestation.signature ?? "")) {
           await this.#ledger.append({
             type: "verification.invalid_attestation",
             at: this.#clock().toISOString(),

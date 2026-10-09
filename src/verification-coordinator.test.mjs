@@ -144,3 +144,15 @@ test("compare-and-append prevents duplicate IDs across coordinator instances", a
     event.type === "verification.started" && event.payload.verificationId === "verify-race");
   assert.equal(starts.length, 1);
 });
+
+test("rejects malformed Ed25519 signature lengths before persistence", async (t) => {
+  const { ledger, runner } = await fixture(t);
+  const coordinator = new VerificationCoordinator({
+    runner, ledger,
+    attest: async (input) => ({ ...issuer({ ...input, verifierId: "ci:trusted" }), signature: "a".repeat(64) }),
+  });
+  await assert.rejects(coordinator.execute({
+    verificationId: "verify-short-signature", taskId: "task-1", projectId: "project-1", commandId: "check", principalId: "ci",
+  }), (error) => error.code === "INVALID_ATTESTATION");
+  assert.ok((await ledger.read()).some((event) => event.type === "verification.invalid_attestation"));
+});
