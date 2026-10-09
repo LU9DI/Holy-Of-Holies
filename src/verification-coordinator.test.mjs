@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { EventLedger } from "./event-ledger.mjs";
 import { VerificationRunner } from "./verification-runner.mjs";
-import { VerificationCoordinator, VerificationCoordinatorError } from "./verification-coordinator.mjs";
+import { VerificationCoordinator } from "./verification-coordinator.mjs";
+import { VerificationEngine } from "./verification-engine.mjs";
 
 async function fixture(t) {
   const dir = await mkdtemp(path.join(tmpdir(), "hoh-coordinator-"));
@@ -91,4 +92,33 @@ test("rejects malformed requests and refuses an unbound attestation", async (t) 
   );
   const events = await ledger.read();
   assert.ok(events.some((event) => event.type === "verification.invalid_attestation"));
+});
+
+test("persists an attestation that a fresh verification engine can validate", async (t) => {
+  const { ledger, runner } = await fixture(t);
+  const key = "coordinator-test-key-at-least-32-bytes";
+  const clock = () => new Date("2026-10-09T12:00:00.000Z");
+  const issuerEngine = new VerificationEngine({ key, trustedVerifiers: ["ci:trusted"], clock });
+  const coordinator = new VerificationCoordinator({
+    runner, ledger,
+    attest: async (input) => issuerEngine.attest({ ...input, verifierId: "ci:trusted" }),
+    clock,
+  });
+  const result = await coordinator.execute({
+    verificationId: "verify-restart", taskId: "task-1", projectId: "project-1", commandId: "check", principalId: "ci",
+  });
+  const events = await ledger.read();
+  const stored = events.find((event) => event.type === "verification.completed").payload.attestation;
+  const restartedVerifier = new VerificationEngine({ key, trustedVerifiers: ["ci:trusted"], clock });
+  assert.equal(await restartedVerifier.verifyCompletion({
+    task: { taskId: "task-1", projectId: "project-1" },
+    evidence: {
+      verificationId: stored.verificationId,
+      verifierId: stored.verifierId,
+      outcome: stored.outcome,
+      resultHash: stored.resultHash,
+      attestation: stored,
+    },
+  }), true);
+  assert.equal(result.attestation.signature, stored.signature);
 });
