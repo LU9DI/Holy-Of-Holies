@@ -39,6 +39,7 @@ test("rejects unknown, forged, mismatched, revoked, and expired attestations", a
   assert.equal(await verifier.verifyCompletion({ task, evidence: { ...evidence, resultHash: "b".repeat(64) } }), false);
   verifier.revoke(evidence.verificationId);
   assert.equal(await verifier.verifyCompletion({ task, evidence }), false);
+  assert.throws(() => verifier.attest(report()), (error) => error.code === "REVOKED_VERIFICATION");
 
   let expiredNow = new Date("2026-10-09T12:00:00Z");
   const expired = new VerificationEngine({ key, trustedVerifiers: ["ci:trusted"], clock: () => expiredNow });

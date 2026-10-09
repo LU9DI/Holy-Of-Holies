@@ -93,6 +93,9 @@ export class VerificationEngine {
     if (![verificationId, taskId, projectId, verifierId].every((id) => ID.test(id))) {
       throw new VerificationEngineError("INVALID_REPORT", "report identifiers contain invalid characters");
     }
+    if (this.#revoked.has(verificationId)) {
+      throw new VerificationEngineError("REVOKED_VERIFICATION", "a revoked verification ID cannot be re-attested");
+    }
     if (!this.#trustedVerifiers.has(verifierId)) {
       throw new VerificationEngineError("UNTRUSTED_VERIFIER", "verifier is not on the trusted allowlist");
     }
@@ -116,7 +119,6 @@ export class VerificationEngine {
     };
     const signed = Object.freeze({ ...report, signature: digest(this.#key, canonicalReport(report)) });
     this.#records.set(verificationId, signed);
-    this.#revoked.delete(verificationId);
     return signed;
   }
 
