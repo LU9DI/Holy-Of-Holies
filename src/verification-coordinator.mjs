@@ -1,0 +1,169 @@
+import { createHash } from "node:crypto";
+
+const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
+const HASH = /^[a-f0-9]{64}$/;
+
+export class VerificationCoordinatorError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = "VerificationCoordinatorError";
+    this.code = code;
+  }
+}
+
+function validId(value) {
+  return typeof value === "string" && ID.test(value);
+}
+
+function safeReport(report) {
+  return {
+    taskId: report.taskId,
+    projectId: report.projectId,
+    commandId: report.commandId,
+    startedAt: report.startedAt,
+    finishedAt: report.finishedAt,
+    exitCode: report.exitCode,
+    outcome: report.outcome,
+    timedOut: report.timedOut,
+    cancelled: report.cancelled,
+    outputLimitExceeded: report.outputLimitExceeded,
+    ...(report.spawnError ? { spawnError: true } : {}),
+    stdoutHash: report.stdoutHash,
+    stderrHash: report.stderrHash,
+    stdoutBytes: report.stdoutBytes,
+    stderrBytes: report.stderrBytes,
+    resultHash: report.resultHash,
+  };
+}
+
+/**
+ * Coordinates a configured runner with an external attestation issuer and the
+ * append-only event ledger. It intentionally does not possess a signing key.
+ * Output text is excluded from the durable ledger; only hashes and metadata
+ * are recorded to reduce accidental leakage of secrets.
+ */
+export class VerificationCoordinator {
+  #runner;
+  #ledger;
+  #attest;
+  #clock;
+  #inFlight = new Set();
+
+  constructor({ runner, ledger, attest, clock = () => new Date() } = {}) {
+    if (!runner || typeof runner.run !== "function") throw new TypeError("a verification runner is required");
+    if (!ledger || typeof ledger.append !== "function" || typeof ledger.read !== "function") {
+      throw new TypeError("a compatible event ledger is required");
+    }
+    if (typeof attest !== "function") throw new TypeError("an external attestation issuer is required");
+    this.#runner = runner;
+    this.#ledger = ledger;
+    this.#attest = attest;
+    this.#clock = clock;
+  }
+
+  async execute({ verificationId, taskId, projectId, commandId, principalId, signal } = {}) {
+    if (![verificationId, taskId, projectId, commandId, principalId].every(validId)) {
+      throw new VerificationCoordinatorError("INVALID_REQUEST", "verificationId, taskId, projectId, commandId, and principalId must be valid identifiers");
+    }
+    if (this.#inFlight.has(verificationId)) {
+      throw new VerificationCoordinatorError("DUPLICATE_IN_FLIGHT", "this verification ID is already executing");
+    }
+
+    this.#inFlight.add(verificationId);
+    try {
+      const history = await this.#ledger.read();
+      if (history.some((event) => event.payload?.verificationId === verificationId)) {
+        throw new VerificationCoordinatorError("DUPLICATE_VERIFICATION", "verification ID already exists in durable history");
+      }
+
+      await this.#ledger.append({
+        type: "verification.started",
+        at: this.#clock().toISOString(),
+        payload: { verificationId, taskId, projectId, commandId, principalId },
+      });
+
+      let report;
+      try {
+        report = await this.#runner.run({ taskId, projectId, commandId, principalId, signal });
+      } catch (error) {
+        await this.#ledger.append({
+          type: "verification.runner_error",
+          at: this.#clock().toISOString(),
+          payload: {
+            verificationId, taskId, projectId, commandId,
+            errorCode: typeof error?.code === "string" ? error.code.slice(0, 80) : "RUNNER_ERROR",
+          },
+        });
+        throw new VerificationCoordinatorError("RUNNER_FAILED", "verification runner did not return a report");
+      }
+
+      if (!report || report.taskId !== taskId || report.projectId !== projectId ||
+          report.commandId !== commandId || !["passed", "failed"].includes(report.outcome) ||
+          !HASH.test(report.resultHash ?? "") || !HASH.test(report.stdoutHash ?? "") ||
+          !HASH.test(report.stderrHash ?? "")) {
+        await this.#ledger.append({
+          type: "verification.invalid_report",
+          at: this.#clock().toISOString(),
+          payload: { verificationId, taskId, projectId, commandId },
+        });
+        throw new VerificationCoordinatorError("INVALID_RUNNER_REPORT", "runner report failed contract validation");
+      }
+
+      const result = safeReport(report);
+      let attestation = null;
+      if (report.outcome === "passed") {
+        try {
+          attestation = await this.#attest({
+            verificationId,
+            taskId,
+            projectId,
+            verifierId: principalId,
+            outcome: "passed",
+            resultHash: report.resultHash,
+          });
+        } catch {
+          await this.#ledger.append({
+            type: "verification.attestation_error",
+            at: this.#clock().toISOString(),
+            payload: { verificationId, taskId, projectId, commandId, resultHash: report.resultHash },
+          });
+          throw new VerificationCoordinatorError("ATTESTATION_FAILED", "trusted attestation service did not attest the result");
+        }
+        if (!attestation || attestation.verificationId !== verificationId ||
+            attestation.taskId !== taskId || attestation.projectId !== projectId ||
+            attestation.outcome !== "passed" || attestation.resultHash !== report.resultHash ||
+            !validId(attestation.verifierId) || typeof attestation.signature !== "string" ||
+            attestation.signature.length < 32) {
+          await this.#ledger.append({
+            type: "verification.invalid_attestation",
+            at: this.#clock().toISOString(),
+            payload: { verificationId, taskId, projectId, commandId, resultHash: report.resultHash },
+          });
+          throw new VerificationCoordinatorError("INVALID_ATTESTATION", "attestation failed identity and result binding checks");
+        }
+      }
+
+      await this.#ledger.append({
+        type: "verification.completed",
+        at: this.#clock().toISOString(),
+        payload: {
+          verificationId,
+          ...result,
+          ...(attestation ? {
+            attestation: {
+              verificationId: attestation.verificationId,
+              verifierId: attestation.verifierId,
+              issuedAt: attestation.issuedAt,
+              expiresAt: attestation.expiresAt,
+              signatureHash: createHash("sha256").update(attestation.signature).digest("hex"),
+            },
+          } : {}),
+        },
+      });
+
+      return Object.freeze({ report: Object.freeze(result), attestation });
+    } finally {
+      this.#inFlight.delete(verificationId);
+    }
+  }
+}
