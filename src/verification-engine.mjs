@@ -92,6 +92,15 @@ export class VerificationEngine {
     const now = nowValue instanceof Date ? nowValue.getTime() : Date.parse(nowValue);
     if (!Number.isFinite(now) || Date.parse(record.issuedAt) > now + 30_000 || Date.parse(record.expiresAt) <= now) return false;
     if (!this.#trustedVerifiers.has(record.verifierId)) return false;
+
+    // Workspace digest retrieval is asynchronous; a revocation can occur while
+    // it is pending. Recheck immediately before accepting the signature.
+    if (this.#revoked.has(verificationId)) return false;
+    if (this.#revocationRegistry) {
+      try { if (await this.#revocationRegistry.isRevoked(verificationId)) return false; }
+      catch { return false; }
+    }
+
     try {
       return verifySignature(null, Buffer.from(canonicalReport(record), "utf8"), this.#publicKey, Buffer.from(record.signature, "hex"));
     } catch { return false; }
