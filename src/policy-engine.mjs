@@ -34,7 +34,8 @@ function matchesRule(rule, request, nowMs) {
  * The complete policy document is validated before any allow can be returned.
  * Wildcards and implicit inheritance are intentionally unsupported.
  */
-export function evaluatePolicy({ principalId, action, resource, rules, now = new Date() }) {
+export function evaluatePolicy(request = {}) {
+  const { principalId, action, resource, rules, now = new Date() } = request ?? {};
   if (!nonEmpty(principalId) || !nonEmpty(action) || !nonEmpty(resource)) {
     return Object.freeze({ allowed: false, reason: "invalid_request", matchedRuleIds: [] });
   }
