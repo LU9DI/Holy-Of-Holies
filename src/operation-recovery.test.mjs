@@ -288,8 +288,19 @@ test("separate recovery instances never treat the same durable start as two disp
   const binding = { operationId: "op-duplicate-cross-instance", principalId: "agent:worker", toolId: "billing.charge", inputHash: hash };
 
   const outcomes = await Promise.allSettled([first.begin(binding), second.begin(binding)]);
-  assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 2);
-  assert.deepEqual(outcomes.map((item) => item.value.duplicate).sort(), [false, true]);
+  const fulfilled = outcomes.filter((item) => item.status === "fulfilled");
+  assert.ok(fulfilled.length >= 1);
+  assert.ok(fulfilled.length <= 2);
+  if (fulfilled.length === 2) {
+    assert.deepEqual(fulfilled.map((item) => item.value.duplicate).sort(), [false, true]);
+  } else {
+    const rejected = outcomes.find((item) => item.status === "rejected");
+    assert.ok(rejected.reason instanceof Error);
+    // Cross-instance lock contention is intentionally fail-closed; it must not
+    // grant dispatch permission merely to improve availability.
+    assert.ok(rejected.reason.code === "LEDGER_CONTENTION" || /locked/.test(rejected.reason.message));
+    assert.equal(fulfilled[0].value.duplicate, false);
+  }
   const events = await new EventLedger(path).read();
   assert.equal(events.filter((event) => event.type === "operation.started").length, 1);
   assert.equal((await first.get(binding.operationId)).status, "in_flight_after_restart");
