@@ -8,6 +8,8 @@ function adapter(providerId, overrides = {}) {
     contractVersion: 1,
     capabilities: ["analysis.read", "analysis.summarize"],
     getStatus: async () => ({ available: true }),
+    validateInput: () => true,
+    validateOutput: () => true,
     invoke: async ({ input }) => ({ providerId, input }),
     ...overrides,
   };
@@ -134,4 +136,5 @@ test("rejects invalid adapter contracts", () => {
   assert.throws(() => registry.register(adapter("bad id")), /providerId/);
   assert.throws(() => registry.register(adapter("wrong.version", { contractVersion: 2 })), /contract version/);
   assert.throws(() => registry.register(adapter("no.capabilities", { capabilities: [] })), /capabilities/);
+  assert.throws(() => registry.register(adapter("no.validator", { validateInput: undefined })), /validateInput/);
 });
