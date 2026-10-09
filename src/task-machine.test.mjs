@@ -2,6 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createTask, transitionTask } from "./task-machine.mjs";
 
+const EVIDENCE = {
+  verificationId: "verify-1",
+  verifierId: "test-runner",
+  outcome: "passed",
+  resultHash: "a".repeat(64),
+};
+
 function input(overrides = {}) {
   return {
     taskId: "task-1",
@@ -57,9 +64,11 @@ test("enforces the legal lifecycle and prevents terminal-state mutation", () => 
   const planning = transitionTask(queued, "planning");
   const running = transitionTask(planning, "running");
   const verifying = transitionTask(running, "verifying");
-  const completed = transitionTask(verifying, "completed");
+  assert.throws(() => transitionTask(verifying, "completed"), /verification evidence/);
+  const completed = transitionTask(verifying, "completed", { evidence: EVIDENCE });
   assert.equal(completed.status, "completed");
   assert.equal(completed.events.length, 5);
+  assert.equal(completed.events.at(-1).evidence.verificationId, "verify-1");
   assert.throws(() => transitionTask(completed, "queued"), /terminal task status/);
   assert.equal(queued.status, "queued", "transitions must not mutate prior snapshots");
 });
