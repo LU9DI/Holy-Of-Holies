@@ -34,6 +34,7 @@ export class OperationRecovery {
     await this.#appendTransition("operation.started", binding, (record) => {
       if (!record) return "append";
       if (!sameBinding(record.binding, binding)) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation ID is already bound to different operation data");
+      if (record.resolution) throw new OperationRecoveryError("OPERATION_ALREADY_TERMINAL", "operation already has a reconciliation decision");
       if (record.status === "started") return "duplicate";
       throw new OperationRecoveryError("OPERATION_ALREADY_TERMINAL", "operation ID has already advanced beyond the started state");
     });
@@ -45,6 +46,7 @@ export class OperationRecovery {
     await this.#appendTransition("operation.completed", binding, (record) => {
       if (!record) throw new OperationRecoveryError("OPERATION_NOT_FOUND", "operation intent must exist before completion");
       if (!sameBinding(record.binding, binding)) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation ID is bound to different operation data");
+      if (record.resolution) throw new OperationRecoveryError("OPERATION_ALREADY_TERMINAL", "operation already has a reconciliation decision");
       if (record.status === "completed") return "duplicate";
       if (record.status !== "started") throw new OperationRecoveryError("OPERATION_ALREADY_TERMINAL", "only an in-flight operation can be completed");
       return "append";
@@ -59,6 +61,7 @@ export class OperationRecovery {
     await this.#appendTransition("operation.interrupted", { ...binding, reason: reason.trim() }, (record) => {
       if (!record) throw new OperationRecoveryError("OPERATION_NOT_FOUND", "operation intent must exist before interruption");
       if (!sameBinding(record.binding, binding)) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation ID is bound to different operation data");
+      if (record.resolution) throw new OperationRecoveryError("OPERATION_ALREADY_TERMINAL", "operation already has a reconciliation decision");
       if (record.status === "interrupted") {
         if (record.reason !== reason.trim()) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation already has a different interruption reason");
         return "duplicate";
