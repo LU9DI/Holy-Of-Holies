@@ -152,3 +152,19 @@ test("concurrent independent resolvers cannot commit conflicting outcomes", asyn
   assert.equal(snapshot.resolved[0].retryAutomatically, false);
   assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 1);
 });
+
+test("does not append a new interruption to a semantically corrupt recovery history", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-recovery-no-append-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ledger = new EventLedger(join(dir, "events.jsonl"));
+  await ledger.append({
+    type: "operation.resolved",
+    payload: { operationId: "op-orphan", resolvedBy: "operator:1", resolution: "confirmed_failed", evidenceRef: "audit:orphan" },
+  });
+  const recovery = new OperationRecovery({ ledger });
+  await assert.rejects(
+    recovery.recordInterrupted(interrupted),
+    (error) => error.code === "RECOVERY_LEDGER_INVALID",
+  );
+  assert.equal((await ledger.read()).length, 1);
+});
