@@ -163,3 +163,72 @@ test("durable registry restart blocks redispatch of a completed provider-scoped 
   })]);
   assert.equal((await restarted.recovery.get("op-payment-durable-1")).status, "completed");
 });
+
+
+test("concurrent durable registries dispatch a provider-scoped operation at most once", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-provider-idempotency-race-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ledgerPath = join(dir, "operations.jsonl");
+  let dispatches = 0;
+  const keys = [];
+  const options = {
+    authorize: async () => ({ allowed: true }),
+    consumeApproval: async () => true,
+    clock: now,
+  };
+  const makeDurable = () => {
+    const instance = createDurableToolRegistry({
+      ...options,
+      ledger: new EventLedger(ledgerPath),
+    });
+    instance.tools.register({
+      toolId: "payments.charge",
+      description: "Charge a payment provider account",
+      readOnly: false,
+      providerScope: "payments:merchant-42",
+      inputSchema: {
+        type: "object",
+        required: ["amount"],
+        additionalProperties: false,
+        properties: { amount: { type: "integer", minimum: 1 } },
+      },
+      outputSchema: {
+        type: "object",
+        required: ["ok"],
+        additionalProperties: false,
+        properties: { ok: { type: "boolean" } },
+      },
+      handler: async ({ context }) => {
+        dispatches += 1;
+        keys.push(context.idempotencyKey);
+        // Keep the first handler in flight long enough for the competing
+        // registry to observe the durable intent.
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return { ok: true };
+      },
+    });
+    return instance;
+  };
+
+  const first = makeDurable();
+  const second = makeDurable();
+  const results = await Promise.allSettled([
+    first.tools.invoke(request("op-payment-concurrent")),
+    second.tools.invoke(request("op-payment-concurrent")),
+  ]);
+
+  assert.equal(dispatches, 1, "only one registry may dispatch the same durable operation");
+  assert.equal(keys.length, 1);
+  assert.equal(keys[0], createIdempotencyKey({
+    providerScope: "payments:merchant-42",
+    operationId: "op-payment-concurrent",
+  }));
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  const rejection = results.find((result) => result.status === "rejected");
+  assert.ok(rejection);
+  assert.ok([
+    "OPERATION_ALREADY_CLAIMED",
+    "OPERATION_JOURNAL_BEGIN_FAILED",
+  ].includes(rejection.reason.code));
+  assert.equal((await first.recovery.get("op-payment-concurrent")).status, "completed");
+});
