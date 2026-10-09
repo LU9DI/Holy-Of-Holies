@@ -75,6 +75,59 @@ test("unavailable or unverifiable providers fail closed", async () => {
   );
 });
 
+test("authorizes every invocation and does not expose adapter internals", async () => {
+  let authorizationRequest;
+  const registry = new ProviderRegistry({
+    authorize: async (request) => {
+      authorizationRequest = request;
+      return { allowed: true };
+    },
+  });
+  registry.register(adapter("rea.local"));
+  const resolved = await registry.resolve({ providerId: "rea.local", capability: "analysis.read" });
+  assert.equal("adapter" in resolved, false);
+
+  const result = await registry.invoke({
+    providerId: "rea.local",
+    capability: "analysis.read",
+    principalId: "user:owner",
+    input: { projectId: "project-1" },
+  });
+  assert.deepEqual(authorizationRequest, {
+    principalId: "user:owner",
+    action: "provider.invoke",
+    resource: "provider:rea.local:analysis.read",
+  });
+  assert.deepEqual(result, {
+    providerId: "rea.local",
+    input: { projectId: "project-1" },
+  });
+});
+
+test("denies provider invocation if policy is absent or denies", async () => {
+  const noPolicy = new ProviderRegistry();
+  noPolicy.register(adapter("rea.local"));
+  await assert.rejects(
+    noPolicy.invoke({
+      providerId: "rea.local",
+      capability: "analysis.read",
+      principalId: "user:owner",
+    }),
+    (error) => error.code === "POLICY_ENGINE_UNAVAILABLE",
+  );
+
+  const denied = new ProviderRegistry({ authorize: async () => ({ allowed: false }) });
+  denied.register(adapter("rea.local"));
+  await assert.rejects(
+    denied.invoke({
+      providerId: "rea.local",
+      capability: "analysis.read",
+      principalId: "user:owner",
+    }),
+    (error) => error.code === "POLICY_DENIED",
+  );
+});
+
 test("rejects invalid adapter contracts", () => {
   const registry = new ProviderRegistry();
   assert.throws(() => registry.register({}), /providerId/);
