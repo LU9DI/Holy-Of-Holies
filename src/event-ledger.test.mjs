@@ -86,3 +86,33 @@ test("rejects invalid event input", async (t) => {
   await assert.rejects(ledger.append({ type: "task.event", payload: null }), /payload/);
   await assert.rejects(ledger.append({ type: "task.event", payload: {}, at: "invalid" }), /timestamp/);
 });
+
+test("refuses to append after a crash leaves an incomplete final record", async (t) => {
+  const { path } = await fixture(t);
+  const ledger = new EventLedger(path);
+  await ledger.append({ type: "task.created", payload: { taskId: "t-1" } });
+  const validContents = await readFile(path, "utf8");
+  await writeFile(path, `${validContents}{\\"partial\\":`, "utf8");
+
+  await assert.rejects(ledger.append({
+    type: "task.started",
+    payload: { taskId: "t-1" },
+  }), /incomplete record/);
+  assert.equal(await readFile(path, "utf8"), `${validContents}{\\"partial\\":`);
+});
+
+test("fails closed on an existing lock and never steals or removes it", async (t) => {
+  const { path } = await fixture(t);
+  const ledger = new EventLedger(path);
+  const lockPath = `${path}.lock`;
+  const lockContents = "999999\\n";
+  await writeFile(lockPath, lockContents, { flag: "wx", mode: 0o600 });
+
+  await assert.rejects(ledger.read(), /locked/);
+  await assert.rejects(ledger.append({
+    type: "task.created",
+    payload: { taskId: "t-1" },
+  }), /locked/);
+  assert.equal(await readFile(lockPath, "utf8"), lockContents);
+});
+
