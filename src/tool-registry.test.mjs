@@ -353,3 +353,30 @@ test("ToolRegistry integrates with the durable OperationRecovery implementation"
     (error) => error.code === "OPERATION_ID_CONFLICT",
   );
 });
+
+
+test("durably distinguishes cancellation after intent but before handler dispatch", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-predispatch-abort-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ledgerPath = join(dir, "operations.jsonl");
+  const recovery = new OperationRecovery({ ledger: new EventLedger(ledgerPath), clock: () => new Date("2026-10-09T12:00:00Z") });
+  const controller = new AbortController();
+  const journal = {
+    begin: async (binding) => { await recovery.begin(binding); controller.abort(); },
+    complete: (binding) => recovery.complete(binding),
+    interrupt: (binding) => recovery.interrupt(binding),
+    abortBeforeDispatch: (binding) => recovery.abortBeforeDispatch(binding),
+  };
+  let dispatched = false;
+  const tools = registry({ clock: () => new Date("2026-10-09T12:00:00Z"), consumeApproval: async () => true, operationJournal: journal });
+  tools.register(definition("billing.charge", { readOnly: false, handler: async () => { dispatched = true; return { ok: true }; } }));
+  const approval = { approved: true, approvalId: "approval-predispatch", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
+  await assert.rejects(
+    tools.invoke({ ...baseRequest, toolId: "billing.charge", operationId: "op-predispatch", approval, signal: controller.signal }),
+    (error) => error.code === "TOOL_CALL_CANCELLED" && error.outcomeUnknown === false,
+  );
+  assert.equal(dispatched, false);
+  assert.equal((await recovery.get("op-predispatch")).status, "aborted_before_dispatch");
+  const restarted = new OperationRecovery({ ledger: new EventLedger(ledgerPath) });
+  assert.equal((await restarted.inspect()).aborted[0].operationId, "op-predispatch");
+});
