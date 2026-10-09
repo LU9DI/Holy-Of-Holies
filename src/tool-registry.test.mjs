@@ -204,3 +204,39 @@ test("fails closed when approval metadata is forged or atomic consumption reject
     (error) => error.code === "APPROVAL_NOT_CONSUMED",
   );
 });
+
+
+test("marks side-effect failures after dispatch as outcome-unknown, not safe to retry", async () => {
+  const tools = registry({
+    defaults: { maxInputBytes: 1024, maxOutputBytes: 1024, timeoutMs: 15 },
+    clock: () => new Date("2026-10-09T12:00:00Z"),
+    consumeApproval: async () => true,
+  });
+  let sideEffectStarted = false;
+  tools.register(definition("billing.charge", {
+    readOnly: false,
+    handler: ({ context }) => {
+      sideEffectStarted = true;
+      // Simulate a remote side effect that ignores cooperative cancellation.
+      return new Promise((resolve) => setTimeout(() => resolve({ ok: true }), 50));
+    },
+  }));
+  const approval = { approved: true, approvalId: "approval-unknown", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
+  await assert.rejects(
+    tools.invoke({ ...baseRequest, toolId: "billing.charge", approval }),
+    (error) => error.code === "TOOL_TIMEOUT" && error.outcomeUnknown === true,
+  );
+  assert.equal(sideEffectStarted, true);
+});
+
+test("does not mark pre-dispatch cancellation as an unknown side-effect outcome", async () => {
+  const tools = registry({ consumeApproval: async () => true, clock: () => new Date("2026-10-09T12:00:00Z") });
+  tools.register(definition("workspace.write", { readOnly: false }));
+  const controller = new AbortController();
+  controller.abort();
+  const approval = { approved: true, approvalId: "approval-cancelled", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
+  await assert.rejects(
+    tools.invoke({ ...baseRequest, toolId: "workspace.write", approval, signal: controller.signal }),
+    (error) => error.code === "TOOL_CALL_CANCELLED" && error.outcomeUnknown !== true,
+  );
+});
