@@ -130,6 +130,38 @@ test("requires resume verification and expected status", async (t) => {
   assert.equal(resumed.events.at(-1).resumeVerified, true);
 });
 
+test("does not run resume verification before authorization", async (t) => {
+  let resumeChecks = 0;
+  const { orchestrator } = await setup(t, {
+    authorize: async (request) => ({ allowed: request.action !== "task.resume" }),
+    verifyResume: async () => {
+      resumeChecks += 1;
+      return true;
+    },
+  });
+  await orchestrator.create(taskInput(), { principalId: "user:owner" });
+  await orchestrator.transition("task-1", "planning", {
+    principalId: "user:owner",
+    expectedStatus: "queued",
+  });
+  await orchestrator.transition("task-1", "running", {
+    principalId: "user:owner",
+    expectedStatus: "planning",
+  });
+  await orchestrator.transition("task-1", "interrupted", {
+    principalId: "user:owner",
+    expectedStatus: "running",
+  });
+  await assert.rejects(
+    orchestrator.transition("task-1", "queued", {
+      principalId: "agent:untrusted",
+      expectedStatus: "interrupted",
+    }),
+    (error) => error.code === "POLICY_DENIED",
+  );
+  assert.equal(resumeChecks, 0);
+});
+
 test("detects another writer and requires reload before continuing", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "holy-writers-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
