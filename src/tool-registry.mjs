@@ -128,12 +128,12 @@ function freezeDeep(value) {
 export class ToolRegistry {
   #tools = new Map();
   #authorize;
-  #verifyApproval;
+  #consumeApproval;
   #clock;
 
-  constructor({ authorize, verifyApproval, clock = () => new Date(), defaults = {} } = {}) {
+  constructor({ authorize, consumeApproval, clock = () => new Date(), defaults = {} } = {}) {
     this.#authorize = authorize;
-    this.#verifyApproval = verifyApproval;
+    this.#consumeApproval = consumeApproval;
     this.#clock = clock;
     this.defaults = Object.freeze({
       maxInputBytes: defaults.maxInputBytes ?? 256 * 1024,
@@ -191,27 +191,7 @@ export class ToolRegistry {
     const { descriptor } = entry;
     if (signal?.aborted) throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled before dispatch");
 
-    if (!descriptor.readOnly) {
-      this.#validateApprovalShape(approval, principalId);
-      if (typeof this.#verifyApproval !== "function") {
-        throw new ToolRegistryError("APPROVAL_VERIFIER_UNAVAILABLE", "side-effecting tool denied because no trusted approval verifier is configured");
-      }
-      let approved = false;
-      try {
-        approved = await this.#verifyApproval({
-          approval,
-          principalId,
-          toolId,
-          action: "tool.invoke.side_effect",
-          resource: `tool:${toolId}`,
-        }) === true;
-      } catch {
-        approved = false;
-      }
-      if (!approved) {
-        throw new ToolRegistryError("APPROVAL_NOT_VERIFIED", "side-effecting tool denied because approval could not be independently verified");
-      }
-    }
+    if (!descriptor.readOnly) this.#validateApprovalShape(approval, principalId);
     if (typeof this.#authorize !== "function") {
       throw new ToolRegistryError("POLICY_ENGINE_UNAVAILABLE", "tool invocation denied because no policy evaluator is configured");
     }
@@ -239,6 +219,31 @@ export class ToolRegistry {
     const inputResult = validateSchema(descriptor.inputSchema, input);
     if (!inputResult.valid) {
       throw new ToolRegistryError("INPUT_SCHEMA_INVALID", `tool input rejected at ${inputResult.path}: ${inputResult.reason}`);
+    }
+
+    // Consume only after policy and input validation, immediately before dispatch.
+    // The backing implementation MUST atomically claim approvalId as single-use.
+    if (!descriptor.readOnly) {
+      if (typeof this.#consumeApproval !== "function") {
+        throw new ToolRegistryError("APPROVAL_CONSUMER_UNAVAILABLE", "side-effecting tool denied because no atomic approval consumer is configured");
+      }
+      if (signal?.aborted) throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled before dispatch");
+      let consumed = false;
+      try {
+        consumed = await this.#consumeApproval({
+          approval,
+          principalId,
+          toolId,
+          action: "tool.invoke.side_effect",
+          resource: `tool:${toolId}`,
+        }) === true;
+      } catch {
+        consumed = false;
+      }
+      if (!consumed) {
+        throw new ToolRegistryError("APPROVAL_NOT_CONSUMED", "side-effecting tool denied because approval was invalid, revoked, or already consumed");
+      }
+      if (signal?.aborted) throw new ToolRegistryError("TOOL_CALL_CANCELLED", "tool call cancelled after approval consumption and before dispatch");
     }
 
     const controller = new AbortController();
