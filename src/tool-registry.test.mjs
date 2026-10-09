@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { ToolRegistry, ToolRegistryError } from "./tool-registry.mjs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { EventLedger } from "./event-ledger.mjs";
+import { OperationRecovery } from "./operation-recovery.mjs";
 
 const inputSchema = {
   type: "object",
@@ -318,4 +323,33 @@ test("refuses side-effect dispatch when durable intent cannot be recorded", asyn
     (error) => error.code === "OPERATION_JOURNAL_BEGIN_FAILED",
   );
   assert.equal(dispatched, false);
+});
+
+
+test("ToolRegistry integrates with the durable OperationRecovery implementation", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-tool-recovery-integration-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ledgerPath = join(dir, "operations.jsonl");
+  const recovery = new OperationRecovery({ ledger: new EventLedger(ledgerPath), clock: () => new Date("2026-10-09T12:00:00Z") });
+  let dispatched = 0;
+  const tools = registry({
+    clock: () => new Date("2026-10-09T12:00:00Z"),
+    consumeApproval: async () => true,
+    operationJournal: recovery,
+  });
+  tools.register(definition("billing.charge", {
+    readOnly: false,
+    handler: async () => { dispatched += 1; return { ok: true }; },
+  }));
+  const approval = { approved: true, approvalId: "approval-real-journal", approvedBy: "user:reviewer", expiresAt: "2026-10-09T12:10:00Z" };
+  const result = await tools.invoke({ ...baseRequest, toolId: "billing.charge", operationId: "op-real-journal", approval });
+  assert.deepEqual(result, { ok: true });
+  assert.equal(dispatched, 1);
+  assert.equal((await recovery.get("op-real-journal")).status, "completed");
+  const restarted = new OperationRecovery({ ledger: new EventLedger(ledgerPath) });
+  assert.equal((await restarted.get("op-real-journal")).status, "completed");
+  await assert.rejects(
+    restarted.begin({ operationId: "op-real-journal", principalId: "agent:planner", toolId: "billing.charge", inputHash: "a".repeat(64) }),
+    (error) => error.code === "OPERATION_ID_CONFLICT",
+  );
 });
