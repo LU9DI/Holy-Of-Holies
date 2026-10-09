@@ -31,13 +31,16 @@ export class OperationRecovery {
   /** ToolRegistry journal hook: durably claim a stable operation ID before dispatch. */
   async begin(binding) {
     validateBinding(binding);
-    await this.#appendTransition("operation.started", binding, (record) => {
+    const result = await this.#appendTransition("operation.started", binding, (record) => {
       if (!record) return "append";
       if (!sameBinding(record.binding, binding)) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation ID is already bound to different operation data");
       if (record.resolution) throw new OperationRecoveryError("OPERATION_ALREADY_TERMINAL", "operation already has a reconciliation decision");
       if (record.status === "started") return "duplicate";
       throw new OperationRecoveryError("OPERATION_ALREADY_TERMINAL", "operation ID has already advanced beyond the started state");
     });
+    // A matching existing intent is safe to inspect, but never grants a second
+    // caller permission to dispatch the external effect.
+    return Object.freeze({ operationId: binding.operationId, duplicate: result === "duplicate" });
   }
 
   /** ToolRegistry journal hook: completion must be durably recorded before success returns. */
@@ -167,11 +170,11 @@ export class OperationRecovery {
       const records = await this.#snapshot();
       const existing = records.get(payload.operationId);
       const decision = decide(existing);
-      if (decision === "duplicate") return;
+      if (decision === "duplicate") return "duplicate";
       const events = await this.#ledger.read();
       try {
         await this.#ledger.append({ type, payload, at: this.#now(), expectedHeadHash: events.at(-1)?.hash ?? "0".repeat(64) });
-        return;
+        return "appended";
       } catch (error) {
         const message = String(error?.message ?? "");
         if (!message.includes("head changed") && !message.includes("event ledger is locked")) throw error;
