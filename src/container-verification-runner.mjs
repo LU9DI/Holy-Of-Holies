@@ -104,11 +104,13 @@ export class ContainerVerificationRunner {
   #pids;
   #maxWorkspaceBytes;
   #maxWorkspaceFiles;
+  #maxConcurrent;
+  #active = 0;
 
   constructor({
     workspaceRoot, runtime, commands, authorize, clock = () => new Date(),
     runtimeEnvironment = {}, memoryLimit = "512m", cpuLimit = 1, pidsLimit = 64,
-    maxWorkspaceBytes = 512 * 1024 * 1024, maxWorkspaceFiles = 100000,
+    maxWorkspaceBytes = 512 * 1024 * 1024, maxWorkspaceFiles = 100000, maxConcurrent = 2,
   } = {}) {
     if (typeof workspaceRoot !== "string" || !workspaceRoot.trim() ||
         typeof runtime !== "string" || !path.isAbsolute(runtime) ||
@@ -124,7 +126,8 @@ export class ContainerVerificationRunner {
         typeof cpuLimit !== "number" || !Number.isFinite(cpuLimit) || cpuLimit < 0.1 || cpuLimit > 8 ||
         !Number.isInteger(pidsLimit) || pidsLimit < 16 || pidsLimit > 512 ||
         !Number.isSafeInteger(maxWorkspaceBytes) || maxWorkspaceBytes < 1024 || maxWorkspaceBytes > 4 * 1024 * 1024 * 1024 ||
-        !Number.isInteger(maxWorkspaceFiles) || maxWorkspaceFiles < 1 || maxWorkspaceFiles > 1000000) {
+        !Number.isInteger(maxWorkspaceFiles) || maxWorkspaceFiles < 1 || maxWorkspaceFiles > 1000000 ||
+        !Number.isInteger(maxConcurrent) || maxConcurrent < 1 || maxConcurrent > 16) {
       throw new TypeError("container resource limits are invalid");
     }
     this.#root = path.resolve(workspaceRoot);
@@ -143,6 +146,7 @@ export class ContainerVerificationRunner {
     this.#pids = pidsLimit;
     this.#maxWorkspaceBytes = maxWorkspaceBytes;
     this.#maxWorkspaceFiles = maxWorkspaceFiles;
+    this.#maxConcurrent = maxConcurrent;
   }
 
   async run({ taskId, projectId, commandId, principalId, signal } = {}) {
@@ -166,6 +170,11 @@ export class ContainerVerificationRunner {
       throw new ContainerVerificationRunnerError("POLICY_DENIED", "verification denied by policy");
     }
 
+    if (this.#active >= this.#maxConcurrent) {
+      throw new ContainerVerificationRunnerError("CONCURRENCY_LIMIT", "maximum concurrent verification containers reached");
+    }
+    this.#active += 1;
+    try {
     let root;
     let runtime;
     try {
@@ -319,5 +328,8 @@ export class ContainerVerificationRunner {
     };
     if (!HASH.test(report.resultHash)) throw new ContainerVerificationRunnerError("INTERNAL_HASH_ERROR", "container report hash failed");
     return Object.freeze(report);
+    } finally {
+      this.#active -= 1;
+    }
   }
 }

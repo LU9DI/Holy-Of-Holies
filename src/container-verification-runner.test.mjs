@@ -128,3 +128,24 @@ printf '%s\\n' "$@"
   assert.equal(result.workspaceChanged, true);
   assert.notEqual(result.workspaceHashAfter, result.workspaceHash);
 });
+
+test("enforces a hard limit on concurrent verification containers", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hoh-container-concurrency-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runtime = path.join(root, "fake-runtime.sh");
+  await writeFile(runtime, `#!/bin/sh
+if [ "$1" = "rm" ]; then exit 0; fi
+/bin/sleep 0.3
+printf '%s\\n' "$@"
+`);
+  await chmod(runtime, 0o755);
+  const runner = new ContainerVerificationRunner({
+    workspaceRoot: root, runtime, authorize: allow, maxConcurrent: 1,
+    commands: [{ id: "check", image, executable: "/usr/bin/node", args: [], timeoutMs: 3000, maxOutputBytes: 4096, allowedExitCodes: [0] }],
+  });
+  const first = runner.run({ taskId: "t1", projectId: "p", commandId: "check", principalId: "ci" });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const second = await runner.run({ taskId: "t2", projectId: "p", commandId: "check", principalId: "ci" }).then(() => null, (error) => error);
+  assert.equal(second?.code, "CONCURRENCY_LIMIT");
+  assert.equal((await first).outcome, "passed");
+});
