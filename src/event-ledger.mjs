@@ -16,6 +16,14 @@ function digest(body) {
   return createHash("sha256").update(JSON.stringify(body)).digest("hex");
 }
 
+function freezeDeep(value) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) freezeDeep(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 function validTimestamp(value) {
   return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
@@ -81,14 +89,14 @@ export class EventLedger {
       } finally {
         await file.close();
       }
-      return Object.freeze(entry);
+      return freezeDeep(entry);
     }));
   }
 
   async read() {
     return this.#serialize(() => this.#withLock(async () => {
       const events = await this.#readAndVerify();
-      return Object.freeze(events.map((entry) => Object.freeze(entry)));
+      return Object.freeze(events.map((entry) => freezeDeep(entry)));
     }));
   }
 
