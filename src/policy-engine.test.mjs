@@ -64,6 +64,7 @@ test("malformed policy documents fail closed even when another rule allows", () 
 });
 
 test("malformed requests and invalid clocks fail closed", () => {
+  assert.equal(evaluatePolicy(null).reason, "invalid_request");
   assert.equal(evaluatePolicy({ ...request, principalId: "", rules: [allow] }).reason, "invalid_request");
   assert.equal(evaluatePolicy({ ...request, now: "not-a-date", rules: [allow] }).reason, "invalid_clock");
 });
