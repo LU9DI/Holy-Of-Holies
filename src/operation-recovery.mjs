@@ -115,7 +115,7 @@ export class OperationRecovery {
       const base = { operationId, principalId: record.binding.principalId, toolId: record.binding.toolId, inputHash: record.binding.inputHash, retryAutomatically: false };
       if (record.status === "completed") completed.push(Object.freeze({ ...base, status: "completed" }));
       else if (record.resolution) resolved.push(Object.freeze({ ...base, status: "resolved", interrupted: record.reason ? Object.freeze({ ...record.binding, reason: record.reason }) : null, resolution: Object.freeze({ ...record.resolution }) }));
-      else pending.push(Object.freeze({ ...base, status: record.status === "started" ? "in_flight_after_restart" : "unknown_after_interruption", reason: record.reason ?? null }));
+      else pending.push(Object.freeze({ ...base, status: record.status === "started" ? "in_flight_after_restart" : "unknown_after_interruption", interrupted: record.reason ? Object.freeze({ ...record.binding, reason: record.reason }) : null, reason: record.reason ?? null }));
     }
     const order = (a,b) => a.operationId.localeCompare(b.operationId);
     pending.sort(order); resolved.sort(order); completed.sort(order);
@@ -128,8 +128,8 @@ export class OperationRecovery {
     const record = records.get(operationId);
     if (!record) return null;
     if (record.status === "completed") return Object.freeze({ operationId, status: "completed", retryAutomatically: false });
-    if (record.resolution) return Object.freeze({ operationId, status: "resolved", resolution: Object.freeze({ ...record.resolution }), retryAutomatically: false });
-    return Object.freeze({ operationId, status: record.status === "started" ? "in_flight_after_restart" : "unknown_after_interruption", retryAutomatically: false });
+    if (record.resolution) return Object.freeze({ operationId, status: "resolved", interrupted: record.reason ? Object.freeze({ ...record.binding, reason: record.reason }) : null, resolution: Object.freeze({ ...record.resolution }), retryAutomatically: false });
+    return Object.freeze({ operationId, status: record.status === "started" ? "in_flight_after_restart" : "unknown_after_interruption", interrupted: record.reason ? Object.freeze({ ...record.binding, reason: record.reason }) : null, retryAutomatically: false });
   }
 
   async #appendTransition(type, payload, decide) {
