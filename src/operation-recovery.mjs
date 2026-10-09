@@ -161,6 +161,8 @@ export class OperationRecovery {
 
   async #appendUnique(type, payload) {
     for (let attempt = 0; attempt < 5; attempt += 1) {
+      // Never extend a ledger with semantically corrupt recovery history.
+      await this.inspect();
       const events = await this.#ledger.read();
       const existing = events.find((event) => event.type === "operation.interrupted" && event.payload.operationId === payload.operationId);
       if (existing) {
