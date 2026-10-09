@@ -126,3 +126,29 @@ test("rejects resolution events that precede interruption or violate independent
   const secondRecovery = new OperationRecovery({ ledger: secondLedger });
   await assert.rejects(secondRecovery.inspect(), (error) => error.code === "RECOVERY_LEDGER_INVALID");
 });
+
+test("concurrent independent resolvers cannot commit conflicting outcomes", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "holy-recovery-race-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const ledgerPath = join(dir, "events.jsonl");
+  const first = new OperationRecovery({ ledger: new EventLedger(ledgerPath) });
+  const second = new OperationRecovery({ ledger: new EventLedger(ledgerPath) });
+  await first.recordInterrupted(interrupted);
+
+  const outcomes = await Promise.allSettled([
+    first.resolve({
+      operationId: "op-001", resolvedBy: "operator:one",
+      resolution: "confirmed_succeeded", evidenceRef: "audit:success",
+    }),
+    second.resolve({
+      operationId: "op-001", resolvedBy: "operator:two",
+      resolution: "confirmed_failed", evidenceRef: "audit:failure",
+    }),
+  ]);
+
+  const snapshot = await first.inspect();
+  assert.equal(snapshot.resolved.length, 1);
+  assert.equal(snapshot.pending.length, 0);
+  assert.equal(snapshot.resolved[0].retryAutomatically, false);
+  assert.equal(outcomes.filter((item) => item.status === "fulfilled").length, 1);
+});
