@@ -161,6 +161,13 @@ export class EventLedger {
         throw new Error(`event ledger integrity failure at sequence ${expectedSequence}`);
       }
 
+      const allowedKeys = ["at", "hash", "payload", "previousHash", "sequence", "type"];
+      const actualKeys = Object.keys(entry).sort();
+      if (actualKeys.length !== allowedKeys.length ||
+          actualKeys.some((key, keyIndex) => key !== allowedKeys[keyIndex])) {
+        throw new Error(`event ledger contains unexpected fields at sequence ${expectedSequence}`);
+      }
+
       const body = eventBody(entry);
       const expectedHash = digest(body);
       if (entry.hash !== expectedHash) {
