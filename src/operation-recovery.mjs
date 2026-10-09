@@ -1,189 +1,195 @@
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 const HASH = /^[a-f0-9]{64}$/;
 const RESOLUTIONS = new Set(["confirmed_succeeded", "confirmed_failed", "confirmed_not_executed"]);
+const BINDING = ["principalId", "toolId", "inputHash"];
 
 export class OperationRecoveryError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.name = "OperationRecoveryError";
-    this.code = code;
-  }
+  constructor(code, message) { super(message); this.name = "OperationRecoveryError"; this.code = code; }
 }
-
 function requireId(value, field) {
-  if (typeof value !== "string" || !ID.test(value)) {
-    throw new OperationRecoveryError("INVALID_OPERATION_RECORD", `${field} has an invalid format`);
-  }
+  if (typeof value !== "string" || !ID.test(value)) throw new OperationRecoveryError("INVALID_OPERATION_RECORD", `${field} has an invalid format`);
 }
+function validateBinding({ operationId, principalId, toolId, inputHash }) {
+  requireId(operationId, "operationId"); requireId(principalId, "principalId"); requireId(toolId, "toolId");
+  if (typeof inputHash !== "string" || !HASH.test(inputHash)) throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "inputHash must be a SHA-256 hex digest");
+}
+function sameBinding(a, b) { return BINDING.every((key) => a[key] === b[key]); }
 
 /**
- * Durable, fail-closed reconciliation for side effects whose outcome became
- * unknown after interruption. This records evidence and operator decisions;
- * it never retries an external operation and cannot provide exactly-once effects.
+ * Durable operation journal and evidence-backed reconciliation over EventLedger.
+ * It never retries external effects and cannot guarantee exactly-once execution.
  */
 export class OperationRecovery {
   #ledger;
   #clock;
-
   constructor({ ledger, clock = () => new Date() } = {}) {
-    if (!ledger || typeof ledger.read !== "function" || typeof ledger.append !== "function") {
-      throw new TypeError("a compatible durable event ledger is required");
-    }
+    if (!ledger || typeof ledger.read !== "function" || typeof ledger.append !== "function") throw new TypeError("a compatible durable event ledger is required");
     if (typeof clock !== "function") throw new TypeError("clock must be a function");
-    this.#ledger = ledger;
-    this.#clock = clock;
+    this.#ledger = ledger; this.#clock = clock;
   }
 
-  async recordInterrupted({ operationId, principalId, toolId, inputHash, reason }) {
-    requireId(operationId, "operationId");
-    requireId(principalId, "principalId");
-    requireId(toolId, "toolId");
-    if (typeof inputHash !== "string" || !HASH.test(inputHash)) {
-      throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "inputHash must be a SHA-256 hex digest");
-    }
-    if (typeof reason !== "string" || reason.trim().length < 1 || reason.length > 500) {
-      throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "reason must contain 1-500 characters");
-    }
-
-    return this.#appendUnique("operation.interrupted", {
-      operationId, principalId, toolId, inputHash, reason: reason.trim(),
+  /** ToolRegistry journal hook: durably claim a stable operation ID before dispatch. */
+  async begin(binding) {
+    validateBinding(binding);
+    await this.#appendTransition("operation.started", binding, (record) => {
+      if (!record) return "append";
+      if (!sameBinding(record.binding, binding)) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation ID is already bound to different operation data");
+      if (record.status === "started") return "duplicate";
+      throw new OperationRecoveryError("OPERATION_ALREADY_TERMINAL", "operation ID has already advanced beyond the started state");
     });
   }
 
-  async resolve({ operationId, resolvedBy, resolution, evidenceRef }) {
-    requireId(operationId, "operationId");
-    requireId(resolvedBy, "resolvedBy");
-    if (!RESOLUTIONS.has(resolution)) {
-      throw new OperationRecoveryError("INVALID_RESOLUTION", "resolution must explicitly confirm success, failure, or non-execution");
-    }
-    if (typeof evidenceRef !== "string" || evidenceRef.trim().length < 1 || evidenceRef.length > 500) {
-      throw new OperationRecoveryError("EVIDENCE_REQUIRED", "a bounded reference to reconciliation evidence is required");
-    }
+  /** ToolRegistry journal hook: completion must be durably recorded before success returns. */
+  async complete(binding) {
+    validateBinding(binding);
+    await this.#appendTransition("operation.completed", binding, (record) => {
+      if (!record) throw new OperationRecoveryError("OPERATION_NOT_FOUND", "operation intent must exist before completion");
+      if (!sameBinding(record.binding, binding)) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation ID is bound to different operation data");
+      if (record.status === "completed") return "duplicate";
+      if (record.status !== "started") throw new OperationRecoveryError("OPERATION_ALREADY_TERMINAL", "only an in-flight operation can be completed");
+      return "append";
+    });
+  }
 
+  /** ToolRegistry journal hook: a post-dispatch failure is an uncertain outcome. */
+  async interrupt({ ...binding, reason }) {
+    validateBinding(binding);
+    if (typeof reason !== "string" || reason.trim().length < 1 || reason.length > 500) throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "reason must contain 1-500 characters");
+    await this.#appendTransition("operation.interrupted", { ...binding, reason: reason.trim() }, (record) => {
+      if (!record) throw new OperationRecoveryError("OPERATION_NOT_FOUND", "operation intent must exist before interruption");
+      if (!sameBinding(record.binding, binding)) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation ID is bound to different operation data");
+      if (record.status === "interrupted") {
+        if (record.reason !== reason.trim()) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation already has a different interruption reason");
+        return "duplicate";
+      }
+      if (record.status !== "started") throw new OperationRecoveryError("OPERATION_ALREADY_TERMINAL", "only an in-flight operation can be interrupted");
+      return "append";
+    });
+  }
+
+  /** Backward-compatible API for imported/legacy interruption records. */
+  async recordInterrupted({ operationId, principalId, toolId, inputHash, reason }) {
+    validateBinding({ operationId, principalId, toolId, inputHash });
+    if (typeof reason !== "string" || reason.trim().length < 1 || reason.length > 500) throw new OperationRecoveryError("INVALID_OPERATION_RECORD", "reason must contain 1-500 characters");
+    const payload = { operationId, principalId, toolId, inputHash, reason: reason.trim() };
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      // Refuse mutation if any recovery history is already inconsistent.
-      await this.inspect();
-      const events = await this.#ledger.read();
-      const operationEvents = events.filter((event) => event.payload?.operationId === operationId &&
-        ["operation.interrupted", "operation.resolved"].includes(event.type));
-      const interrupted = operationEvents.find((event) => event.type === "operation.interrupted");
-      if (!interrupted) throw new OperationRecoveryError("OPERATION_NOT_FOUND", "no interrupted operation with this ID exists");
-      if (operationEvents.some((event) => event.type === "operation.resolved")) {
-        throw new OperationRecoveryError("OPERATION_ALREADY_RESOLVED", "operation already has a durable resolution");
-      }
-      if (resolvedBy === interrupted.payload.principalId) {
-        throw new OperationRecoveryError("INDEPENDENT_REVIEW_REQUIRED", "the resolver must differ from the original principal");
-      }
-      const head = events.at(-1)?.hash ?? "0".repeat(64);
-      try {
-        const event = await this.#ledger.append({
-          type: "operation.resolved",
-          payload: { operationId, resolvedBy, resolution, evidenceRef: evidenceRef.trim() },
-          at: this.#now(),
-          expectedHeadHash: head,
-        });
-        return Object.freeze({ operationId, resolution, eventHash: event.hash });
-      } catch (error) {
-        if (!String(error?.message ?? "").includes("head changed")) throw error;
-      }
-    }
-    throw new OperationRecoveryError("LEDGER_CONTENTION", "could not safely record resolution after concurrent ledger updates");
-  }
-
-  /**
-   * Rebuilds the recovery view exclusively from the durable ledger after restart.
-   * Semantic inconsistencies fail closed rather than silently choosing a record.
-   */
-  async inspect() {
-    const events = await this.#ledger.read();
-    const operations = new Map();
-    for (const event of events) {
-      if (event.type !== "operation.interrupted" && event.type !== "operation.resolved") continue;
-      const payload = event.payload;
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-        throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "operation event has an invalid payload");
-      }
-      requireId(payload.operationId, "operationId");
-      const current = operations.get(payload.operationId) ?? { interrupted: null, resolution: null };
-      if (event.type === "operation.interrupted") {
-        requireId(payload.principalId, "principalId");
-        requireId(payload.toolId, "toolId");
-        if (typeof payload.inputHash !== "string" || !HASH.test(payload.inputHash) ||
-            typeof payload.reason !== "string" || payload.reason.trim().length < 1 || payload.reason.length > 500 ||
-            current.interrupted) {
-          throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "duplicate or malformed interruption record");
-        }
-        current.interrupted = payload;
-      } else {
-        requireId(payload.resolvedBy, "resolvedBy");
-        if (!current.interrupted || current.resolution) {
-          throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "resolution must follow exactly one interruption record");
-        }
-        if (payload.resolvedBy === current.interrupted.principalId) {
-          throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "resolution violates independent-review requirement");
-        }
-        if (!RESOLUTIONS.has(payload.resolution) ||
-            typeof payload.evidenceRef !== "string" || payload.evidenceRef.trim().length < 1 ||
-            payload.evidenceRef.length > 500 || current.resolution) {
-          throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "duplicate or malformed resolution record");
-        }
-        current.resolution = payload;
-      }
-      operations.set(payload.operationId, current);
-    }
-    const pending = [];
-    const resolved = [];
-    for (const [operationId, record] of operations) {
-      if (!record.interrupted) {
-        throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "resolution exists without an interruption record");
-      }
-      if (record.resolution) resolved.push(Object.freeze({
-        operationId, status: "resolved", interrupted: Object.freeze({ ...record.interrupted }),
-        resolution: Object.freeze({ ...record.resolution }), retryAutomatically: false,
-      }));
-      else pending.push(Object.freeze({
-        operationId, status: "unknown_after_interruption", interrupted: Object.freeze({ ...record.interrupted }),
-        retryAutomatically: false,
-      }));
-    }
-    const order = (a, b) => a.operationId.localeCompare(b.operationId);
-    pending.sort(order);
-    resolved.sort(order);
-    return Object.freeze({ pending: Object.freeze(pending), resolved: Object.freeze(resolved), retryAutomatically: false });
-  }
-
-  async get(operationId) {
-    requireId(operationId, "operationId");
-    const snapshot = await this.inspect();
-    const record = [...snapshot.pending, ...snapshot.resolved].find((item) => item.operationId === operationId);
-    return record ?? null;
-  }
-
-  async #appendUnique(type, payload) {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      // Never extend a ledger with semantically corrupt recovery history.
-      await this.inspect();
-      const events = await this.#ledger.read();
-      const existing = events.find((event) => event.type === "operation.interrupted" && event.payload.operationId === payload.operationId);
+      const snapshot = await this.#snapshot();
+      const existing = snapshot.get(operationId);
       if (existing) {
-        const same = ["principalId", "toolId", "inputHash", "reason"].every((key) => existing.payload[key] === payload[key]);
-        if (!same) throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation ID is already bound to different operation data");
-        return Object.freeze({ ...existing, duplicate: true });
+        if (!sameBinding(existing.binding, payload) || existing.reason !== payload.reason || existing.status !== "interrupted") throw new OperationRecoveryError("OPERATION_ID_CONFLICT", "operation ID is already bound to different operation data or lifecycle state");
+        return Object.freeze({ operationId, duplicate: true });
       }
-      const head = events.at(-1)?.hash ?? "0".repeat(64);
+      const events = await this.#ledger.read();
       try {
-        const event = await this.#ledger.append({ type, payload, at: this.#now(), expectedHeadHash: head });
-        return Object.freeze({ ...event, duplicate: false });
-      } catch (error) {
-        if (!String(error?.message ?? "").includes("head changed")) throw error;
-      }
+        const event = await this.#ledger.append({ type: "operation.interrupted", payload, at: this.#now(), expectedHeadHash: events.at(-1)?.hash ?? "0".repeat(64) });
+        return Object.freeze({ operationId, eventHash: event.hash, duplicate: false });
+      } catch (error) { if (!String(error?.message ?? "").includes("head changed")) throw error; }
     }
     throw new OperationRecoveryError("LEDGER_CONTENTION", "could not safely record operation after concurrent ledger updates");
   }
 
+  async resolve({ operationId, resolvedBy, resolution, evidenceRef }) {
+    requireId(operationId, "operationId"); requireId(resolvedBy, "resolvedBy");
+    if (!RESOLUTIONS.has(resolution)) throw new OperationRecoveryError("INVALID_RESOLUTION", "resolution must explicitly confirm success, failure, or non-execution");
+    if (typeof evidenceRef !== "string" || evidenceRef.trim().length < 1 || evidenceRef.length > 500) throw new OperationRecoveryError("EVIDENCE_REQUIRED", "a bounded reference to reconciliation evidence is required");
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const snapshot = await this.#snapshot();
+      const record = snapshot.get(operationId);
+      if (!record || !["interrupted", "started"].includes(record.status)) throw new OperationRecoveryError("OPERATION_NOT_FOUND", "no unresolved operation with this ID exists");
+      if (record.resolution) throw new OperationRecoveryError("OPERATION_ALREADY_RESOLVED", "operation already has a durable resolution");
+      if (resolvedBy === record.binding.principalId) throw new OperationRecoveryError("INDEPENDENT_REVIEW_REQUIRED", "the resolver must differ from the original principal");
+      const events = await this.#ledger.read();
+      try {
+        const event = await this.#ledger.append({ type: "operation.resolved", payload: { operationId, resolvedBy, resolution, evidenceRef: evidenceRef.trim() }, at: this.#now(), expectedHeadHash: events.at(-1)?.hash ?? "0".repeat(64) });
+        return Object.freeze({ operationId, resolution, eventHash: event.hash });
+      } catch (error) { if (!String(error?.message ?? "").includes("head changed")) throw error; }
+    }
+    throw new OperationRecoveryError("LEDGER_CONTENTION", "could not safely record resolution after concurrent ledger updates");
+  }
+
+  async inspect() {
+    const records = await this.#snapshot();
+    const pending = []; const resolved = []; const completed = [];
+    for (const [operationId, record] of records) {
+      const base = { operationId, principalId: record.binding.principalId, toolId: record.binding.toolId, inputHash: record.binding.inputHash, retryAutomatically: false };
+      if (record.status === "completed") completed.push(Object.freeze({ ...base, status: "completed" }));
+      else if (record.resolution) resolved.push(Object.freeze({ ...base, status: "resolved", interrupted: record.reason ? Object.freeze({ ...record.binding, reason: record.reason }) : null, resolution: Object.freeze({ ...record.resolution }) }));
+      else pending.push(Object.freeze({ ...base, status: record.status === "started" ? "in_flight_after_restart" : "unknown_after_interruption", reason: record.reason ?? null }));
+    }
+    const order = (a,b) => a.operationId.localeCompare(b.operationId);
+    pending.sort(order); resolved.sort(order); completed.sort(order);
+    return Object.freeze({ pending: Object.freeze(pending), resolved: Object.freeze(resolved), completed: Object.freeze(completed), retryAutomatically: false });
+  }
+
+  async get(operationId) {
+    requireId(operationId, "operationId");
+    const records = await this.#snapshot();
+    const record = records.get(operationId);
+    if (!record) return null;
+    if (record.status === "completed") return Object.freeze({ operationId, status: "completed", retryAutomatically: false });
+    if (record.resolution) return Object.freeze({ operationId, status: "resolved", resolution: Object.freeze({ ...record.resolution }), retryAutomatically: false });
+    return Object.freeze({ operationId, status: record.status === "started" ? "in_flight_after_restart" : "unknown_after_interruption", retryAutomatically: false });
+  }
+
+  async #appendTransition(type, payload, decide) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const records = await this.#snapshot();
+      const existing = records.get(payload.operationId);
+      const decision = decide(existing);
+      if (decision === "duplicate") return;
+      const events = await this.#ledger.read();
+      try {
+        await this.#ledger.append({ type, payload, at: this.#now(), expectedHeadHash: events.at(-1)?.hash ?? "0".repeat(64) });
+        return;
+      } catch (error) { if (!String(error?.message ?? "").includes("head changed")) throw error; }
+    }
+    throw new OperationRecoveryError("LEDGER_CONTENTION", "could not safely record operation after concurrent ledger updates");
+  }
+
+  async #snapshot() {
+    const events = await this.#ledger.read();
+    const records = new Map();
+    for (const event of events) {
+      if (!["operation.started", "operation.completed", "operation.interrupted", "operation.resolved"].includes(event.type)) continue;
+      const p = event.payload;
+      if (!p || typeof p !== "object" || Array.isArray(p)) throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "operation event has an invalid payload");
+      requireId(p.operationId, "operationId");
+      let record = records.get(p.operationId);
+      if (event.type === "operation.started") {
+        validateBinding(p);
+        if (record) throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "duplicate start or reused operation ID");
+        record = { binding: { operationId: p.operationId, principalId: p.principalId, toolId: p.toolId, inputHash: p.inputHash }, status: "started", reason: null, resolution: null };
+        records.set(p.operationId, record);
+      } else if (event.type === "operation.completed") {
+        validateBinding(p);
+        if (!record || record.status !== "started" || !sameBinding(record.binding, p)) throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "completion must follow a matching start exactly once");
+        record.status = "completed";
+      } else if (event.type === "operation.interrupted") {
+        validateBinding(p);
+        if (typeof p.reason !== "string" || p.reason.trim().length < 1 || p.reason.length > 500) throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "invalid interruption reason");
+        if (!record) {
+          // Compatibility with older ledgers where interruptions were recorded without an intent event.
+          record = { binding: { operationId: p.operationId, principalId: p.principalId, toolId: p.toolId, inputHash: p.inputHash }, status: "interrupted", reason: p.reason, resolution: null };
+          records.set(p.operationId, record);
+        } else {
+          if (record.status !== "started" || !sameBinding(record.binding, p)) throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "interruption must follow a matching start exactly once");
+          record.status = "interrupted"; record.reason = p.reason;
+        }
+      } else {
+        requireId(p.resolvedBy, "resolvedBy");
+        if (!record || !["started", "interrupted"].includes(record.status) || record.resolution ||
+            p.resolvedBy === record.binding.principalId || !RESOLUTIONS.has(p.resolution) ||
+            typeof p.evidenceRef !== "string" || !p.evidenceRef.trim() || p.evidenceRef.length > 500) {
+          throw new OperationRecoveryError("RECOVERY_LEDGER_INVALID", "invalid, duplicate, or unauthorized operation resolution");
+        }
+        record.resolution = { resolvedBy: p.resolvedBy, resolution: p.resolution, evidenceRef: p.evidenceRef };
+      }
+    }
+    return records;
+  }
+
   #now() {
-    const value = this.#clock();
-    const date = value instanceof Date ? value : new Date(value);
+    const value = this.#clock(); const date = value instanceof Date ? value : new Date(value);
     if (!Number.isFinite(date.getTime())) throw new TypeError("clock must return a valid date");
     return date.toISOString();
   }
