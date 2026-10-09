@@ -40,3 +40,10 @@ npm test
 ## Status
 
 Early core foundation. The task and provider APIs are expected to evolve before a stable release. The project license is now declared. A formal release still requires a contribution policy, dependency/notice audit, security review and release verification.
+
+
+## Tool Registry
+
+The core now exposes `ToolRegistry` for explicit tool allowlisting. Each registered tool declares strict JSON input/output contracts, whether it is read-only, and bounded input/output sizes and execution time. Every invocation is checked against the configured policy evaluator. Side-effecting tools require an independently verified, short-lived approval record through an injected `verifyApproval` function; caller-supplied approval metadata alone is not trusted.
+
+Cancellation and timeout signals are cooperative. They do **not** terminate hostile code running inside the same process. Do not register untrusted handlers in-process; production execution requires a separately hardened OS/container boundary, credential scoping, and resource enforcement.
