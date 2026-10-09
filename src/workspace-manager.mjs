@@ -20,6 +20,8 @@ function hash(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+const MAX_WORKSPACE_BYTES = 64 * 1024 * 1024;
+
 function nonEmpty(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -50,11 +52,11 @@ export class WorkspaceManager {
 
   constructor({ root, maxReadBytes = 1_048_576, maxWriteBytes = 1_048_576 } = {}) {
     if (!nonEmpty(root)) throw new TypeError("workspace root is required");
-    if (!Number.isSafeInteger(maxReadBytes) || maxReadBytes <= 0) {
-      throw new RangeError("maxReadBytes must be a positive safe integer");
+    if (!Number.isSafeInteger(maxReadBytes) || maxReadBytes <= 0 || maxReadBytes > MAX_WORKSPACE_BYTES) {
+      throw new RangeError("maxReadBytes must be between 1 byte and 64 MiB");
     }
-    if (!Number.isSafeInteger(maxWriteBytes) || maxWriteBytes <= 0) {
-      throw new RangeError("maxWriteBytes must be a positive safe integer");
+    if (!Number.isSafeInteger(maxWriteBytes) || maxWriteBytes <= 0 || maxWriteBytes > MAX_WORKSPACE_BYTES) {
+      throw new RangeError("maxWriteBytes must be between 1 byte and 64 MiB");
     }
     this.#configuredRoot = resolve(root);
     this.#maxReadBytes = maxReadBytes;
@@ -91,11 +93,31 @@ export class WorkspaceManager {
       throw new WorkspaceError("UNSAFE_FILE_TYPE", "workspace reads require a regular non-symlink file");
     }
 
+    if (info.size > maxBytes) {
+      throw new WorkspaceError("READ_LIMIT_EXCEEDED", "workspace file exceeds the read limit");
+    }
     const canonicalTarget = await realpath(target);
     this.#assertInside(canonicalTarget);
-    const buffer = await readFile(canonicalTarget);
-    if (buffer.byteLength > maxBytes) {
-      throw new WorkspaceError("READ_LIMIT_EXCEEDED", "workspace file exceeds the read limit");
+    const file = await open(canonicalTarget, "r");
+    let buffer;
+    try {
+      const currentInfo = await file.stat();
+      if (!currentInfo.isFile() || currentInfo.size > maxBytes) {
+        throw new WorkspaceError("READ_LIMIT_EXCEEDED", "workspace file exceeds the read limit");
+      }
+      const bounded = Buffer.alloc(maxBytes + 1);
+      let offset = 0;
+      while (offset < bounded.length) {
+        const { bytesRead } = await file.read(bounded, offset, bounded.length - offset, offset);
+        if (bytesRead === 0) break;
+        offset += bytesRead;
+      }
+      if (offset > maxBytes) {
+        throw new WorkspaceError("READ_LIMIT_EXCEEDED", "workspace file exceeds the read limit");
+      }
+      buffer = bounded.subarray(0, offset);
+    } finally {
+      await file.close();
     }
     return Object.freeze({
       path: displayPath,
@@ -237,8 +259,8 @@ export class WorkspaceManager {
   }
 
   #validateLimit(value, field) {
-    if (!Number.isSafeInteger(value) || value <= 0) {
-      throw new RangeError(field + " must be a positive safe integer");
+    if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_WORKSPACE_BYTES) {
+      throw new RangeError(field + " must be between 1 byte and 64 MiB");
     }
   }
 
