@@ -157,12 +157,20 @@ export class TaskOrchestrator {
       let action = "task.transition";
       let resumeVerified = false;
       let approvedBy;
+      const resumeRequested = current.status === "interrupted" && nextStatus === "queued";
       if (current.status === "awaiting_approval" && nextStatus === "running") {
         action = "task.approve";
         approvedBy = principalId;
       }
-      if (current.status === "interrupted" && nextStatus === "queued") {
-        action = "task.resume";
+      if (resumeRequested) action = "task.resume";
+
+      await this.#authorizeOrDeny({
+        principalId,
+        action,
+        resource: `task:${taskId}`,
+      });
+
+      if (resumeRequested) {
         if (typeof this.#verifyResume !== "function") {
           throw new TaskOrchestratorError("RESUME_VERIFIER_UNAVAILABLE", "resume denied because no verifier is configured");
         }
@@ -175,12 +183,6 @@ export class TaskOrchestrator {
           throw new TaskOrchestratorError("RESUME_VERIFICATION_FAILED", "resume verification failed");
         }
       }
-
-      await this.#authorizeOrDeny({
-        principalId,
-        action,
-        resource: `task:${taskId}`,
-      });
 
       const at = this.#clock();
       const next = transitionTask(current, nextStatus, {
