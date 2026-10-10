@@ -281,6 +281,7 @@ export class ToolRegistry {
       try {
         const intent = await this.#operationJournal.begin({
           operationId, principalId, toolId, inputHash,
+          ...(descriptor.providerScope !== undefined ? { providerScope: descriptor.providerScope } : {}),
         });
         if (intent?.duplicate === true) {
           throw new ToolRegistryError("OPERATION_ALREADY_CLAIMED", "operation ID already has a durable intent; duplicate dispatch is denied", { outcomeUnknown: true, operationId });
@@ -306,7 +307,11 @@ export class ToolRegistry {
         // If supported, record that the handler was definitely not dispatched.
         if (typeof this.#operationJournal.abortBeforeDispatch === "function") {
           try {
-            await this.#operationJournal.abortBeforeDispatch({ operationId, principalId, toolId, inputHash, reason: "cancelled_before_dispatch" });
+            await this.#operationJournal.abortBeforeDispatch({
+              operationId, principalId, toolId, inputHash,
+              ...(descriptor.providerScope !== undefined ? { providerScope: descriptor.providerScope } : {}),
+              reason: "cancelled_before_dispatch",
+            });
           } catch {
             throw new ToolRegistryError("OPERATION_JOURNAL_ABORT_FAILED", "cancellation occurred before dispatch but the durable abort could not be recorded", { outcomeUnknown: false, operationId, recoveryRecordFailed: true });
           }
@@ -351,7 +356,10 @@ export class ToolRegistry {
       }
       if (!descriptor.readOnly && this.#operationJournal) {
         try {
-          await this.#operationJournal.complete({ operationId, principalId, toolId, inputHash });
+          await this.#operationJournal.complete({
+            operationId, principalId, toolId, inputHash,
+            ...(descriptor.providerScope !== undefined ? { providerScope: descriptor.providerScope } : {}),
+          });
         } catch {
           throw new ToolRegistryError("OPERATION_JOURNAL_COMPLETE_FAILED", "tool returned but durable completion could not be recorded", { outcomeUnknown: true, operationId });
         }
@@ -367,6 +375,7 @@ export class ToolRegistry {
         try {
           await this.#operationJournal.interrupt({
             operationId, principalId, toolId, inputHash,
+            ...(descriptor.providerScope !== undefined ? { providerScope: descriptor.providerScope } : {}),
             reason: error instanceof ToolRegistryError ? error.code : "handler_failure",
           });
         } catch {
