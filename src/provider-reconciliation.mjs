@@ -50,6 +50,18 @@ export async function reconcileProviderOperation({
   if (!record) {
     throw new ProviderReconciliationError("OPERATION_NOT_PENDING", "operation is not unresolved; no provider lookup or mutation was performed");
   }
+  if (typeof record.providerScope !== "string" || record.providerScope.length === 0) {
+    throw new ProviderReconciliationError(
+      "PROVIDER_SCOPE_NOT_JOURNALED",
+      "operation has no durable provider scope; provider lookup is denied",
+    );
+  }
+  if (record.providerScope !== providerScope) {
+    throw new ProviderReconciliationError(
+      "PROVIDER_SCOPE_MISMATCH",
+      "requested provider scope does not match the durable operation binding",
+    );
+  }
 
   const idempotencyKey = createIdempotencyKey({ providerScope, operationId });
   const expected = Object.freeze({
