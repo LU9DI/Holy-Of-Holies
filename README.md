@@ -168,3 +168,15 @@ These injected callbacks are security-critical trust boundaries, not generic pro
 - **Validation:** [PR CI result](https://github.com/LU9DI/Holy-Of-Holies/actions/runs/38014713909); check [Actions](https://github.com/LU9DI/Holy-Of-Holies/actions) for the latest `main` run.
 
 The GitHub ZIP archives contain versioned files from the selected branch. They do not include uncommitted local files or recover content that was never saved to the repository. Provider idempotency is not an exactly-once guarantee; provider adapters must honor the key and reconcile uncertain outcomes using authoritative evidence.
+
+
+## Complete preservation snapshot
+
+A newer preservation branch was created directly from `main` to keep the same Git ancestry and include the latest source tree plus audit records:
+
+- **Complete snapshot:** [backup-complete-2026-10-10](https://github.com/LU9DI/Holy-Of-Holies/tree/backup-complete-2026-10-10)
+- **Snapshot ZIP:** [Download complete snapshot](https://github.com/LU9DI/Holy-Of-Holies/archive/refs/heads/backup-complete-2026-10-10.zip)
+- **Full preservation audit:** [AUDIT-COMPLETE-2026-10-10.md](https://github.com/LU9DI/Holy-Of-Holies/blob/backup-complete-2026-10-10/backups/AUDIT-COMPLETE-2026-10-10.md)
+- **Preservation index:** [PRESERVATION-INDEX-2026-10-10.md](https://github.com/LU9DI/Holy-Of-Holies/blob/backup-complete-2026-10-10/backups/PRESERVATION-INDEX-2026-10-10.md)
+
+The snapshot is based on the main branch commit history and contains the same source files as `main`, plus two audit documents. It cannot recover uncommitted local files or content that existed only in deleted conversations.
