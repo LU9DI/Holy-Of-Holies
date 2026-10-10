@@ -143,7 +143,7 @@ test("a recreated registry cannot redispatch a completed operation after restart
 
   await assert.rejects(
     restartedTools.invoke(request),
-    (error) => error.code === "OPERATION_JOURNAL_BEGIN_FAILED",
+    (error) => error.code === "OPERATION_ALREADY_CLAIMED",
   );
   assert.equal(restartedDispatches, 0);
   assert.equal((await restartedRecovery.get(request.operationId)).status, "completed");
