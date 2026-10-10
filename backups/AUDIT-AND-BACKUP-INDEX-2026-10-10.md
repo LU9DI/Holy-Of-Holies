@@ -28,3 +28,13 @@ Os relatórios textuais e índices desta auditoria foram adicionados aos reposit
 - AURIX: https://github.com/LU9DI/AURIX/blob/main/backups/SHA256SUMS-AURIX-2026-10-09.txt
 - AEGIS: https://github.com/LU9DI/AEGIS/blob/main/SHA256SUMS-AEGIS-2026-10-09.txt
 - Zion: https://github.com/LU9DI/zion/blob/main/SHA256SUMS-zion-master-v0.33.32.txt
+
+
+## Manifestos adicionais verificados nesta rodada
+
+- AEGIS master recovery ZIP: SHA-256 `d668f26b76d1df332bdec6fa363305c2d9e5aa167c21c10ec00b7eb8f2a9be03`; manifesto remoto: https://github.com/LU9DI/AEGIS/blob/main/backups/SHA256SUMS-RECOVERY-MASTER-2026-10-09.txt
+- AURIX complete backup ZIP: SHA-256 `26675f1ce8f1d6e581abd9942e2a60a2f15fdb7e949bde586dfa3fa14978e126`; manifesto remoto: https://github.com/LU9DI/AURIX/blob/main/backups/SHA256SUMS-COMPLETE-BACKUP-2026-10-09.txt
+- Zion master preservation ZIP: SHA-256 `e0d7ae6ac2ed68f4dda1f975204df360be6c68ca79be4a86829d25430311f74a`; manifesto remoto: https://github.com/LU9DI/zion/blob/main/backups/SHA256SUMS-MASTER-PRESERVATION-2026-10-10.txt
+- AEGIS recovery status and explicit remote-publication caveat: https://github.com/LU9DI/AEGIS/blob/main/backups/AEGIS-RECOVERY-STATUS-2026-10-09.md
+
+Esses commits publicam metadados e checksums adicionais, não os bytes dos ZIPs. O upload binário e a publicação integral das árvores-fonte AURIX/AEGIS/Zion continuam pendentes; nenhum checksum substitui a cópia real do artefato.
