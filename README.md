@@ -154,3 +154,17 @@ if (!result.resolved) {
 ```
 
 These injected callbacks are security-critical trust boundaries, not generic provider integrations supplied by the core. The deployment must authenticate the provider response, validate account/tenant identity and operation/key binding, enforce authorization for the independent resolver, and ensure evidence references are durable and auditable. A boolean from an untrusted adapter is not proof. Provider lookup semantics, idempotency retention, and the authenticity of provider receipts must be validated for each concrete provider.
+
+
+## Repository preservation and audit status
+
+- **Main source branch:** [`main`](https://github.com/LU9DI/Holy-Of-Holies/tree/main)
+- **Preservation snapshot:** [`backup-snapshot-2026-10-10`](https://github.com/LU9DI/Holy-Of-Holies/tree/backup-snapshot-2026-10-10)
+- **Snapshot ZIP:** [Download source archive](https://github.com/LU9DI/Holy-Of-Holies/archive/refs/heads/backup-snapshot-2026-10-10.zip)
+- **Main ZIP:** [Download main branch archive](https://github.com/LU9DI/Holy-Of-Holies/archive/refs/heads/main.zip)
+- **Audit report:** [Audit and preservation notes](https://github.com/LU9DI/Holy-Of-Holies/blob/backup-snapshot-2026-10-10/backups/AUDIT-2026-10-10.md)
+- **Holy of Holies preservation index:** [Audit index](https://github.com/LU9DI/Holy-Of-Holies/blob/backup-snapshot-2026-10-10/backups/AUDIT-AND-BACKUP-INDEX-2026-10-10.md)
+- **Provider idempotency and recovery PR:** [PR #1 — merged](https://github.com/LU9DI/Holy-Of-Holies/pull/1)
+- **Validation:** [PR CI result](https://github.com/LU9DI/Holy-Of-Holies/actions/runs/38014713909); check [Actions](https://github.com/LU9DI/Holy-Of-Holies/actions) for the latest `main` run.
+
+The GitHub ZIP archives contain versioned files from the selected branch. They do not include uncommitted local files or recover content that was never saved to the repository. Provider idempotency is not an exactly-once guarantee; provider adapters must honor the key and reconcile uncertain outcomes using authoritative evidence.
