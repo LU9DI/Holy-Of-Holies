@@ -62,6 +62,12 @@ Esta é uma auditoria estática de primeira passagem, não um pentest, análise 
    - Evidência: README e documentos de arquitetura dizem que o workflow autônomo completo e a implantação de confiança de produção permanecem incompletos. O repositório fornece primitivas e contratos, não um runtime completo com planejamento, ciclo de execução, gestão de modelos, adapters de produção, observabilidade e operação.
    - Ação: definir requisitos de produto e critérios de aceite ponta a ponta antes de chamar o core de plataforma funcional; separar claramente interfaces implementadas, adapters de exemplo e recursos planejados.
 
+10. **Chamadas a adaptadores de provider não têm timeout nem limites de payload no registry.**
+   - Evidência: `src/provider-registry.mjs`, método `invoke()` e `resolve()`.
+   - A chamada a `getStatus()` e `invoke()` é aguardada sem deadline imposto pelo registry; o `AbortSignal` é apenas passado ao adaptador e, se ele o ignorar, a chamada pode ficar pendente indefinidamente. Também não há limites genéricos de bytes para input/output neste módulo.
+   - Impacto: adaptador defeituoso ou hostil pode travar fluxo, consumir memória com respostas grandes ou bloquear capacidade do core. Isso contrasta com os limites presentes em `ToolRegistry` e nos runners.
+   - Ação: aplicar timeout obrigatório para status e invoke, tamanho máximo serializado de entrada/saída, cancelamento com semântica explícita e isolamento de adaptadores não confiáveis; testar adaptadores que nunca resolvem, ignoram cancelamento ou retornam objetos enormes.
+
 ### P2 — Preparação para lançamento e manutenção
 
 10. **Não há release/tag publicada nem processo de release reproduzível verificado.**
