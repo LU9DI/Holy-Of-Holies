@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, symlink, rm, chmod, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WorkspaceManager } from "./workspace-manager.mjs";
@@ -88,4 +88,12 @@ test("requires initialization before accessing files", async (t) => {
     workspace.readText("file.txt"),
     (error) => error.code === "WORKSPACE_NOT_INITIALIZED",
   );
+});
+
+test("overwriting an existing file preserves its permission bits", { skip: process.platform === "win32" }, async (t) => {
+  const { root, workspace } = await fixture(t);
+  await writeFile(join(root, "run.sh"), "#!/bin/sh\necho 1\n");
+  await chmod(join(root, "run.sh"), 0o755);
+  await workspace.writeText("run.sh", "#!/bin/sh\necho 2\n");
+  assert.equal((await stat(join(root, "run.sh"))).mode & 0o777, 0o755);
 });
