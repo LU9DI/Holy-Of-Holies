@@ -180,6 +180,8 @@ export class WorkspaceManager {
       let file;
       try {
         file = await open(temporary, "wx", 0o600);
+        // Replacing a file must not silently change its permissions (e.g. 0755 -> 0600).
+        if (existing) await file.chmod(existing.mode & 0o777);
         await file.writeFile(buffer);
         await file.sync();
         await file.close();
