@@ -305,3 +305,15 @@ test("separate recovery instances never treat the same durable start as two disp
   assert.equal(events.filter((event) => event.type === "operation.started").length, 1);
   assert.equal((await first.get(binding.operationId)).status, "in_flight_after_restart");
 });
+
+test("concurrent begin() calls through separate ledger instances all succeed", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "hoh-contention-"));
+  const path = join(dir, "ledger.jsonl");
+  const inputHash = "a".repeat(64);
+  const recoveries = Array.from({ length: 6 }, () => new OperationRecovery({ ledger: new EventLedger(path) }));
+  const results = await Promise.all(recoveries.map((recovery, index) =>
+    recovery.begin({ operationId: `op-${index}`, principalId: "agent", toolId: "tool", inputHash })));
+  assert.equal(results.length, 6);
+  const { pending } = await recoveries[0].inspect();
+  assert.equal(pending.length, 6);
+});
