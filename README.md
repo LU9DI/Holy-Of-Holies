@@ -1,6 +1,6 @@
 # Holy of Holies
 
-Holy of Holies is the sovereign, open-source orchestration core for a free, decentralized and security-first software engineering platform. The core is licensed under **GNU AGPL-3.0-or-later**, chosen as an initial copyleft default so modified network-served versions remain available to their users. This is a project licensing decision, not legal advice.
+Holy of Holies is the sovereign orchestration core for a security-first software engineering platform. This repository is public, but it currently has no open-source license file. Public visibility does not grant permission to copy, modify, or redistribute the code; prior releases and commits may remain subject to previously published license terms.
 
 This repository is the **standalone Holy of Holies (HH) core**, not the Zion implementation. HH has no mandatory dependency on Zion, REA, or any other external system and must remain fully usable when all integrations are absent. Zion and REA are independently maintained projects. A user may explicitly opt into connecting HH to either of them—or to a different system—through versioned, documented adapters/contracts. No integration is enabled, assumed, or required by default; the user must control connection, permissions, data sharing, and disconnection.
 
@@ -30,7 +30,7 @@ npm test
 ## Project principles
 
 1. Free essential capabilities; no mandatory subscriptions, credits, or proprietary service.
-2. Open source and auditable implementation.
+2. Auditable implementation, subject to applicable rights.
 3. No mandatory central controller for core local workflows.
 4. Explicit authorization and least privilege.
 5. Verifiable outcomes: never equate a tool invocation with successful completion.
@@ -39,7 +39,7 @@ npm test
 
 ## Status
 
-Early core foundation. The task and provider APIs are expected to evolve before a stable release. The project license is now declared. A formal release still requires a contribution policy, dependency/notice audit, security review and release verification.
+Early core foundation. The task and provider APIs are expected to evolve before a stable release. The repository currently has no open-source license file. A formal release still requires a contribution policy, dependency/notice audit, security review and release verification.
 
 
 ## Tool Registry
