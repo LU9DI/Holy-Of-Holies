@@ -1,6 +1,6 @@
 # Holy of Holies
 
-Holy of Holies is the sovereign orchestration core for a security-first software engineering platform. This repository is public, but it currently has no open-source license file. Public visibility does not grant permission to copy, modify, or redistribute the code; prior releases and commits may remain subject to previously published license terms.
+Holy of Holies is the sovereign orchestration core for a security-first software engineering platform. This repository is distributed under the GNU Affero General Public License v3 or later; see [LICENSE](LICENSE). Historical releases and commits may remain subject to the terms that applied to those versions.
 
 This repository is the **standalone Holy of Holies (HH) core**, not the Zion implementation. HH has no mandatory dependency on Zion, REA, or any other external system and must remain fully usable when all integrations are absent. Zion and REA are independently maintained projects. A user may explicitly opt into connecting HH to either of them—or to a different system—through versioned, documented adapters/contracts. No integration is enabled, assumed, or required by default; the user must control connection, permissions, data sharing, and disconnection.
 
