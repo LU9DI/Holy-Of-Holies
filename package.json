@@ -15,5 +15,4 @@
   },
   "main": "./src/index.mjs",
   "exports": "./src/index.mjs",
-  "license": "AGPL-3.0-or-later"
 }
