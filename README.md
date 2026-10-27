@@ -39,7 +39,7 @@ npm test
 
 ## Status
 
-Early core foundation. The task and provider APIs are expected to evolve before a stable release. The repository currently has no open-source license file. A formal release still requires a contribution policy, dependency/notice audit, security review and release verification.
+Early core foundation. The task and provider APIs are expected to evolve before a stable release. The repository currently has no open-source license file. The package manifest intentionally omits a license declaration until the licensing decision is approved; public visibility alone does not grant reuse rights. A formal release still requires a contribution policy, dependency/notice audit, security review and release verification.
 
 
 ## Tool Registry
