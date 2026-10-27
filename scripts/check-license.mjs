@@ -1,18 +1,18 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 
 const manifest = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
-const licenseText = await readFile(new URL("../LICENSE", import.meta.url), "utf8");
 
-if (manifest.license !== "AGPL-3.0-or-later") {
-  throw new Error("package.json license must match the project license");
-}
-if (!licenseText.startsWith("GNU AFFERO GENERAL PUBLIC LICENSE\nVersion 3, 19 November 2007")) {
-  throw new Error("LICENSE does not contain the expected GNU AGPL version 3 text");
-}
-if (!licenseText.includes("END OF TERMS AND CONDITIONS")) {
-  throw new Error("LICENSE appears incomplete");
+if (Object.hasOwn(manifest, "license")) {
+  throw new Error("License metadata must remain unset until the project is release-ready");
 }
 
-process.stdout.write("License metadata and AGPL-3.0-or-later text are consistent.\n");
+try {
+  await access(new URL("../LICENSE", import.meta.url));
+  throw new Error("LICENSE must not be added until the project license has been deliberately selected");
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
+}
+
+process.stdout.write("License declaration intentionally deferred; no LICENSE file is published.\n");
