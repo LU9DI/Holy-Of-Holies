@@ -14,5 +14,5 @@
     "workflows:check": "node scripts/check-workflows.mjs"
   },
   "main": "./src/index.mjs",
-  "exports": "./src/index.mjs",
+  "exports": "./src/index.mjs"
 }
